@@ -1,0 +1,252 @@
+; ================================================================
+; Yakumo Affect Engine — Default Configuration
+; ================================================================
+;
+; このファイルは affect.config.default（テンプレート）です。
+; 実際に使用する場合は affect.config にコピーしてください:
+;
+;   copy affect.config.default affect.config   (Windows)
+;   cp   affect.config.default affect.config   (Linux/Mac)
+;
+; または install.ps1 を実行すると自動でコピーされます。
+;
+; 読み込み優先順位 (低 → 高):
+;   1. AIClient.Config       (AIクライアント共通設定)
+;   2. affect.config         (Affect Engine 専用設定) ← このファイルのコピー
+;   3. 環境変数 AFFECT_CONFIG が指すファイル (最優先)
+;
+; フォーマット: INI 形式 (セクション [name]、キー=値)
+;              ; または # で始まる行はコメント
+;              値の行末 ; # 以降もコメントとして除去されます
+; ================================================================
+
+
+; ================================================================
+; [nli_model] — モデル選択・推論設定
+; ================================================================
+[nli_model]
+
+; 使用するモデル
+; 選択肢: goemo-roberta-base | roberta-large-mnli | bert_sentiment | xnli_mbert
+; 推奨  : goemo-roberta-base (28→14ラベルマッピング、高精度・高速)
+;          roberta-large-mnli は研究・フォールバック用
+Model = goemo-roberta-base
+
+; ONNX モデル精度
+; 選択肢: fp32 | fp16
+; fp16: GPU 使用時に高速化。CPU 推論では精度低下の恐れあり
+ModelPrecision = fp32
+
+; NLI スコア計算方式 (RoBERTa/BERT 系のみ有効)
+; 選択肢: ent_minus_neu | ent_only | margin | log_margin
+ScoreMode = ent_minus_neu
+
+; スコア集約方法 (複数プロンプト使用時)
+; 選択肢: max | mean | min
+Aggregate = max
+
+; Softmax 温度パラメータ (0.1 〜 1.0 推奨)
+; 低いほど確信度が高い予測に集中する
+Temperature = 0.3
+
+; DirectML (GPU / AMD) を使用するか
+; true にすると対応 GPU を使用して推論を高速化
+UseDirectML = false
+
+; DirectML デバイス ID (複数 GPU 環境でデバイスを指定する場合)
+DirectMLDeviceId = 0
+
+; 驚き (surprise) 判定: スコアがこの値以上なら驚きと判定
+SurpriseThreshold = 0.50
+
+; 驚き判定: Top1 スコアとの差分閾値
+SurpriseDelta = 0.10
+
+; 驚き判定: Top1 スコアに対する相対スコア比の最小値
+SurpriseRelativeMin = 0.80
+
+; 驚き判定: 2位スコアとの最小差分
+SurpriseSecondDiffMin = 0.18
+
+; RoBERTa バッチ処理モード (roberta-large-mnli のみ有効)
+; 選択肢: auto | always | off
+RobertaBatching = auto
+
+; RoBERTa バッチ処理を有効にするサンプル数の閾値 (auto モード時)
+RobertaBatchThreshold = 12
+
+; RoBERTa バッチサイズ: GPU 使用時
+RobertaBatchSize.GPU = 64
+
+; RoBERTa バッチサイズ: CPU 使用時
+RobertaBatchSize.CPU = 16
+
+
+; ================================================================
+; [nli_emotion] — 感情ラベル・フィルタリング設定
+; ================================================================
+[nli_emotion]
+
+; 感情フィルタリングを有効にするか
+; true : Polarity Gate DLL (存在する場合) によるフィルタリング
+; false: 単純スコア降順 Top-K (DefaultTopKFilter)
+EnableFiltering = true
+
+; 使用する感情ラベルセット
+; 選択肢:
+;   basic    — 基本 7 ラベル + 設定に応じたポジ拡張 (最大 10 ラベル)
+;   extended — 全 14 ラベル (デフォルト)
+;   auto     — 基本 7 ラベルで推論し、中立 or 接戦時に全 14 ラベルで再試行
+LabelSet = auto
+
+; [auto モード] Top1 が中立のとき全ラベルで再推論するか
+ExtendedProbe.OnNeutral = true
+
+; [auto モード] Top1-Top2 のスコア差がこの値未満なら全ラベルで再推論
+ExtendedProbe.TieMargin = 0.05
+
+; 拡張ラベル (basic 以外) のプロンプト数上限
+; 基本 7 ラベル以外の拡張ラベルに使用するプロンプト件数を制限 (軽量化)
+ExtendedPromptsPerLabel = 2
+
+; [basic モード] ポジティブ拡張: 親しみ・愛情 (affection) を有効にするか
+BasicPos.IncludeAffection = true
+
+; [basic モード] ポジティブ拡張: 期待 (anticipation) を有効にするか
+BasicPos.IncludeAnticipation = true
+
+; 欲望 (desire) ラベルの有効/無効 (モード別)
+EnableDesire.Basic    = false
+EnableDesire.Extended = true
+EnableDesire.Auto     = true
+
+; ラベル重みオーバーライド (省略時はビルトインのデフォルト値を使用)
+; 値は乗数: 1.0 = 変更なし / 0.5 = 半減 / 1.5 = 1.5 倍
+; canonical 英語ラベル名で指定する
+LabelWeight.surprise     = 0.85
+LabelWeight.anger        = 1.00  ; 0.90 → 1.00
+LabelWeight.joy          = 0.90  ; 0.95 → 0.90
+LabelWeight.sadness      = 1.20  ; 1.00 → 1.20（悲しみ検出強化）
+LabelWeight.fear         = 0.95  ; 1.00 → 0.95
+LabelWeight.disgust      = 1.00
+LabelWeight.neutral      = 0.88  ; 0.90 → 0.88
+LabelWeight.affection    = 1.00
+LabelWeight.trust        = 1.00
+LabelWeight.resentment   = 1.00
+LabelWeight.disbelief    = 1.00
+LabelWeight.shame        = 1.00
+LabelWeight.anticipation = 1.00
+LabelWeight.desire       = 1.00
+
+; プロンプト数オーバーライド (省略時はデフォルト件数を使用)
+; 指定したラベルのプロンプト数を先頭 N 件に強制 (N >= 1)
+; localized 名 (日本語) または canonical 英語名で指定可
+;Prompts.Override.joy     = 1
+;Prompts.Override.sadness = 3
+
+; RoBERTa 感情閾値強調を有効にするか (roberta-large-mnli のみ有効)
+EnableRobertaThresholds = true
+
+; Platt Scaling キャリブレーションを有効にするか
+; true にするには data/stats/calibration_platt.json が必要
+; ※ 現在は無効 (未調整) — 将来の再有効化用として設定のみ残す
+Calibration.Enabled = false
+
+; GoEmotions ラベルモード（--embed-generate / --phase0 コマンド使用時）
+; raw28: 原本28ラベル（評価用） / yakumo14: 14ラベルマッピング（本番用）
+GoEmoLabelMode = yakumo14
+
+; --- 追加: PolarityGate 挙動制御キー ---
+; 極性衝突時に中立スコアを合成昇格するか（false推奨: 個別感情を保持）
+NeutralizeConflicts = false
+; 衝突判定の閾値（|pos合計 - neg合計| がこれ未満なら拮抗とみなす）
+ConflictNeutralDelta = 0.045
+; ポジ/ネガ支配判定のマージン（支配側の合計がこれ以上大きければ片側除外）
+DominanceSumMargin = 0.30
+; 悲しみ優先判定マージン（悲しみがこの差以内なら優先昇格）
+SadnessPriorityMargin = 0.09
+; PolarityGate の詳細ログを出力するか
+PolarityGateVerbose = false
+; 中立スコアの下限フロア
+NeutralFloor = 0.15
+; 中立昇格スコアの上限
+LimitNeutralPromote = 0.87
+
+
+; ================================================================
+; [nli_translation] — 翻訳サービス設定 (日本語入力時)
+; ================================================================
+[nli_translation]
+
+; 使用する翻訳モデル
+; 選択肢:
+;   nllb  — 高精度・文脈理解 (facebook/nllb-200-distilled-600M)
+;           ライセンス: CC-BY-NC-4.0 (商用利用時は要確認)
+;   opus  — 軽量・高速 (Helsinki-NLP/opus-mt-ja-en, MIT)
+;   mt5   — バランス型 (google/mt5-small, Apache 2.0)
+Model = nllb
+
+; 翻訳品質モード (Model が未指定 or 無効な場合のフォールバック制御)
+; 選択肢: high | fast
+Quality = high
+
+; 翻訳 HTTP タイムアウト (秒)
+TimeoutSeconds = 180
+
+; 翻訳サーバーウォームアップ待機タイムアウト (秒)
+WarmupTimeoutSeconds = 30
+
+; 翻訳失敗時のリトライ回数
+RetryCount = 1
+
+; リトライ時のバックオフ初期値 (ミリ秒、以降 2 倍ずつ増加)
+RetryBackoffMs = 500
+
+
+; ================================================================
+; [embedding] — Embedding ベース再スコアリング設定
+; ================================================================
+[embedding]
+
+; Embedding ベースの再スコアリングを有効にするか
+; true にすると類似事例投票で NLI スコアを補正
+; 要件: VectorIndex (data/embedding_index.bin) が必要
+Rescoring.Enabled = false
+
+; 類似事例検索の Top-K 数
+Rescoring.TopK = 30
+
+; 類似度の最小閾値 (0.0 〜 1.0)
+Rescoring.MinSimilarity = 0.60
+
+; IDF 重み付けを使用するか (頻出ラベルへの過剰投票を抑制)
+Rescoring.IdfWeighting = true
+
+; IDF ダンピング閾値
+; 類似事例数がこれ未満の場合に IDF 効果を線形減衰させる
+Rescoring.IdfDampingThreshold = 20
+
+; 中立 (neutral) が Top1 のとき再スコアリングをトリガーするか
+Rescoring.TriggerOnNeutral = true
+
+; 接戦判定マージン (Top1-Top2 差がこれ未満なら再スコアリングをトリガー)
+Rescoring.NeutralMargin = 0.08
+
+; NLI スコアの融合比率 (Embedding 比率 = 1.0 - この値)
+; 例: 0.70 → NLI 70% + Embedding 30%
+Rescoring.NliWeight = 0.70
+
+
+; ================================================================
+; [polarity_gate] — Polarity Gate 設定
+; ================================================================
+; Polarity Gate は Yakumo.Affect.PolarityGate.dll が必要です。
+; DLL が存在しない場合は DefaultTopKFilter (単純スコア降順 Top-K) が使用されます。
+; 設定キーの詳細は docs/PolarityGate.md を参照してください。
+[polarity_gate]
+
+; Polarity Gate を有効にするか (DLL が存在する場合のみ有効)
+Enabled = true
+
+; 返却する TopK 感情数
+TopK = 3

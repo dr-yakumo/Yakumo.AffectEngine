@@ -1,0 +1,22 @@
+{
+  "$comment": "affect.dict.json.example — このファイルを affect.dict.json にコピーして編集してください。",
+  "version": 1,
+
+  "phraseDict": {
+    "説明: フレーズ辞書（完全一致）。翻訳APIを呼ばずに直接この訳を返します。": "",
+    "眠いなぁ": "I'm sleepy.",
+    "怖い": "I'm scared.",
+    "悲しい...": "I'm sad.",
+    "嬉しい！": "I'm so happy!"
+  },
+
+  "properNouns": {
+    "説明: 固有名詞マップ（部分一致）。翻訳前にテキスト内の固有名詞を英語表記に置換します。": "",
+    "株式会社サンプル": "Sample Corporation"
+  },
+
+  "corrections": {
+    "説明: 英語後処理補正（大文字小文字無視の部分一致）。翻訳後の誤訳パターンを修正します。": "",
+    "G Lab": "graphics card"
+  }
+}
