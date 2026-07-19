@@ -53,9 +53,15 @@ namespace Yakumo.Affect
         private readonly HttpClient _httpClient = new HttpClient();
         private Process? _serverProcess;
         private bool _serverStarted = false;
-        // 翻訳API/ヘルスチェックのURL
-        private readonly string _serverUrl = "http://localhost:5000/translate";
-        private readonly string _healthUrl = "http://localhost:5000/health";
+
+        // ── ブルーグリーン切替用のポート管理 ──
+        // アクティブサーバーのメモリが閾値に達したら、裏でもう一方のポートに新プロセスを
+        // 起動・ウォームアップし、準備完了後に無停止で切り替える(会話を止めない)。
+        private readonly int[] _ports = new int[2];
+        private volatile int _activePort;
+        private string TranslateUrl(int port) => $"http://localhost:{port}/translate";
+        private string HealthUrl(int port) => $"http://localhost:{port}/health";
+        private int OtherPort(int port) => port == _ports[0] ? _ports[1] : _ports[0];
 
         // タイムアウト/リトライ設定（Config反映）
         private readonly int _timeoutSeconds;
@@ -66,12 +72,18 @@ namespace Yakumo.Affect
         private readonly Dictionary<string, string> _translationCache = new();
         private readonly TranslationModelConfig _activeModel;
 
-        // 起動完了シグナル（初回呼び出しゲート用）
-        private readonly TaskCompletionSource<bool> _readyTcs
+        // 起動完了シグナル（初回呼び出しゲート用。サーバー再起動時に差し替えるため readonly ではない）
+        private TaskCompletionSource<bool> _readyTcs
             = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource<bool> _warmupTcs
+        private TaskCompletionSource<bool> _warmupTcs
             = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private volatile bool _isReady;
+
+        // サーバーのライフサイクル操作(クラッシュ復旧の再起動 / ブルーグリーン切替)を
+        // 同時に複数走らせないための直列化ロック
+        private readonly SemaphoreSlim _serverLifecycleLock = new(1, 1);
+        private readonly CancellationTokenSource _lifecycleCts = new();
+        private volatile bool _disposed;
 
         // ── ユーザー辞書（インスタンスフィールド） ──────────────────────────
         // フレーズ辞書（完全一致 → 翻訳スキップ）
@@ -118,30 +130,41 @@ namespace Yakumo.Affect
             _retryCount           = Config.AffectConfigManager.GetInt("nli_translation", "RetryCount",             1);
             _retryBackoffMs       = Config.AffectConfigManager.GetInt("nli_translation", "RetryBackoffMs",       500);
 
+            int basePort = Config.AffectConfigManager.GetInt("nli_translation", "BasePort", 5000);
+            _ports[0] = basePort;
+            _ports[1] = basePort + 1;
+            _activePort = _ports[0];
+
             _httpClient.Timeout = TimeSpan.FromSeconds(Math.Max(1, _timeoutSeconds));
 
             // デフォルト辞書ファイルの自動ロード（存在しない場合はスキップ）
             LoadDictionaryFromJson(Path.Combine(AppContext.BaseDirectory, "affect.dict.json"));
-            
+
             AppDomain.CurrentDomain.ProcessExit += (_, __) => SafeShutdown();
-            StartServer();
+
+            _serverProcess = LaunchServerProcess(_activePort);
+            _serverStarted = _serverProcess != null;
 
             _ = Task.Run(async () =>
             {
-                bool ready = await WaitForServerReadyAsync(TimeSpan.FromSeconds(Math.Max(_warmupTimeoutSeconds, 15)));
+                bool ready = _serverProcess != null &&
+                             await WaitForServerReadyAsync(_activePort, TimeSpan.FromSeconds(Math.Max(_warmupTimeoutSeconds, 15)));
                 if (ready)
                 {
-                    await WarmupAsync();
-                    _warmupTcs.TrySetResult(true);
+                    await WarmupAsync(_activePort);
                     _isReady = true;
-                    _readyTcs.TrySetResult(true);
                 }
                 else
                 {
-                    _readyTcs.TrySetResult(false);
-                    _warmupTcs.TrySetResult(false);
-                    Console.WriteLine("[Warmup] 翻訳サーバーの準備確認に失敗（タイムアウト）");
+                    // 初回起動時はモデルダウンロードでウォームアップ制限時間を超えることがあるが、
+                    // 翻訳リクエスト時に再試行されるため機能上の問題はない。文言も警告に留める
+                    Console.WriteLine("[Warmup] WARNING: Server is still starting (first launch may download the model). Will retry on request / サーバー起動待ちタイムアウト（初回はモデルダウンロード中の可能性）。翻訳リクエスト時に自動再試行します");
                 }
+                _readyTcs.TrySetResult(ready);
+                _warmupTcs.TrySetResult(ready);
+
+                // 初回起動が完了してから、ブルーグリーン切替のためのメモリ監視を開始する
+                StartMemoryMonitorLoop();
             });
         }
 
@@ -303,6 +326,9 @@ namespace Yakumo.Affect
             // 固有名詞置換（翻訳精度のための前処理）
             string preprocessed = ApplyProperNounMap(japaneseText, properNouns);
 
+            // サーバーが(メモリ上限超過による自己終了等で)停止している場合は自動的に再起動する
+            await EnsureServerAliveAsync();
+
             // リトライ付きでHTTP呼び出し
             int attempts = Math.Max(1, _retryCount + 1);
             int backoff   = Math.Max(100, _retryBackoffMs);
@@ -311,6 +337,10 @@ namespace Yakumo.Affect
             {
                 try
                 {
+                    // 毎回読み直す: ブルーグリーン切替がこの呼び出しの途中で起きた場合でも、
+                    // リトライは常にその時点のアクティブポートへ送られるようにする
+                    // (固定してしまうと、切替で退役したポートに向けて再送し続けてしまう)
+                    int targetPort = _activePort;
                     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, _timeoutSeconds)));
 
                     var content = new StringContent(
@@ -318,7 +348,7 @@ namespace Yakumo.Affect
                         Encoding.UTF8,
                         "application/json");
 
-                    var response = await _httpClient.PostAsync(_serverUrl, content, cts.Token);
+                    var response = await _httpClient.PostAsync(TranslateUrl(targetPort), content, cts.Token);
                     if (response.IsSuccessStatusCode)
                     {
                         var responseContent = await response.Content.ReadAsStringAsync(cts.Token);
@@ -405,44 +435,55 @@ namespace Yakumo.Affect
             return result;
         }
 
-        // ── サーバー管理（変更なし） ─────────────────────────────────────────
+        // ── サーバー管理 ─────────────────────────────────────────
 
         private TranslationModelConfig LoadModelFromConfig()
         {
             try
             {
-                string modelKey = Config.AffectConfigManager.Get("nli_translation", "Model",   "nllb");
+                // デフォルトを opus に変更
+                string modelKey = Config.AffectConfigManager.Get("nli_translation", "Model", "opus");
                 string quality  = Config.AffectConfigManager.Get("nli_translation", "Quality", "high");
 
                 if (quality == "fast" && !TranslationModels.ContainsKey(modelKey))
                     modelKey = "opus";
                 else if (quality == "high" && !TranslationModels.ContainsKey(modelKey))
-                    modelKey = "nllb";
+                    modelKey = "opus"; // デフォルトをnllb → opus に変更
 
                 return TranslationModels.TryGetValue(modelKey, out var config)
                     ? config
-                    : TranslationModels["nllb"];
+                    : TranslationModels["opus"]; // フォールバックも opus に変更
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"設定読み込みエラー、デフォルトモデルを使用: {ex.Message}");
-                return TranslationModels["nllb"];
+                return TranslationModels["opus"]; // フォールバックも opus に変更
             }
         }
 
-        private void StartServer()
+        /// <summary>
+        /// 翻訳サーバー(Pythonプロセス)を指定ポートで起動します。失敗時は null を返します。
+        /// </summary>
+        private Process? LaunchServerProcess(int port)
         {
             try
             {
                 string scriptPath = Path.Combine(AppContext.BaseDirectory, "translate_server.py");
                 CreateServerScript(scriptPath);
 
-                _serverProcess = new Process
+                // CPU推論はビーム探索の入力長に応じてアロケータが高水位マークを保持し続け、
+                // OSに返さない性質がある(実測: 会話が続くほどWorkingSetが段階的に増加)。
+                // ブルーグリーン切替の閾値に達する前に万一到達した場合の最終防波堤として、
+                // この上限を超えたらPython側が自ら終了する(通常運用では発火しない想定)。
+                int memLimitMb = Config.AffectConfigManager.GetInt("nli_translation", "ServerMemoryLimitMB", 1536);
+
+                var proc = new Process
                 {
                     StartInfo = new ProcessStartInfo
                     {
                         FileName = "python",
-                        Arguments = $"\"{scriptPath}\"",
+                        // 引数: スクリプトパス, 親(自分)のPID(孤児化防止の生死監視用), メモリ上限MB(緊急自己終了用), ポート番号
+                        Arguments = $"\"{scriptPath}\" {Environment.ProcessId} {memLimitMb} {port}",
                         UseShellExecute = false,
                         CreateNoWindow = true,
                         RedirectStandardOutput = true,
@@ -452,21 +493,174 @@ namespace Yakumo.Affect
                 };
 
                 // イベントハンドラーを設定して、サーバーの標準出力とエラー出力をリアルタイムでコンソールに表示
-                _serverProcess.OutputDataReceived += (_, e) => { if (!string.IsNullOrEmpty(e.Data)) Console.WriteLine($"[PY] {e.Data}"); };
-                _serverProcess.ErrorDataReceived  += (_, e) => { if (!string.IsNullOrEmpty(e.Data)) Console.WriteLine($"[PY-ERR] {e.Data}"); };
+                proc.OutputDataReceived += (_, e) => { if (!string.IsNullOrEmpty(e.Data)) Console.WriteLine($"[PY:{port}] {e.Data}"); };
+                proc.ErrorDataReceived  += (_, e) => { if (!string.IsNullOrEmpty(e.Data)) Console.WriteLine($"[PY-ERR:{port}] {e.Data}"); };
 
-                _serverProcess.Start();
-                _serverProcess.BeginOutputReadLine();
-                _serverProcess.BeginErrorReadLine();
+                proc.Start();
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
 
-                Console.WriteLine($"翻訳サーバーを起動しました ({_activeModel.ModelName})");
+                Console.WriteLine($"翻訳サーバーを起動しました (port={port}, {_activeModel.ModelName})");
 
                 Thread.Sleep(2000);
-                _serverStarted = true;
+                return proc;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"翻訳サーバーの起動に失敗: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 翻訳サーバーが(クラッシュ等で)停止していた場合、自動的に同じポートで再起動する。
+        /// 同時に複数の呼び出しが再起動を試みないよう直列化する。
+        /// </summary>
+        private async Task EnsureServerAliveAsync()
+        {
+            if (_serverProcess != null && !_serverProcess.HasExited) return;
+
+            await _serverLifecycleLock.WaitAsync();
+            try
+            {
+                if (_serverProcess != null && !_serverProcess.HasExited) return; // 他の呼び出しが既に再起動済み
+
+                Console.WriteLine("[Translation] 翻訳サーバーが停止していたため再起動します");
+                _isReady = false;
+                _readyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _warmupTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                _serverProcess = LaunchServerProcess(_activePort);
+                _serverStarted = _serverProcess != null;
+
+                bool ready = _serverProcess != null &&
+                             await WaitForServerReadyAsync(_activePort, TimeSpan.FromSeconds(Math.Max(_warmupTimeoutSeconds, 15)));
+                if (ready)
+                {
+                    await WarmupAsync(_activePort);
+                    _isReady = true;
+                }
+                _readyTcs.TrySetResult(ready);
+                _warmupTcs.TrySetResult(ready);
+            }
+            finally
+            {
+                _serverLifecycleLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// アクティブサーバーのメモリ使用量を定期監視し、閾値超過時にブルーグリーン切替を行うループ。
+        /// </summary>
+        private void StartMemoryMonitorLoop()
+        {
+            int swapThresholdMb = Config.AffectConfigManager.GetInt("nli_translation", "BlueGreenSwapThresholdMB", 1024);
+            int intervalSec     = Config.AffectConfigManager.GetInt("nli_translation", "BlueGreenCheckIntervalSeconds", 10);
+            var token = _lifecycleCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                while (!_disposed && !token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(Math.Max(3, intervalSec)), token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+
+                    try
+                    {
+                        var proc = _serverProcess;
+                        if (proc == null || proc.HasExited) continue;
+
+                        proc.Refresh();
+                        double mb = proc.WorkingSet64 / 1024.0 / 1024.0;
+                        if (mb >= swapThresholdMb)
+                        {
+                            Console.WriteLine($"[BlueGreen] アクティブサーバー(port={_activePort})が{mb:F1}MB(閾値{swapThresholdMb}MB)に到達。裏で新プロセスを準備します");
+                            await SwapToFreshServerAsync();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[BlueGreen] 監視エラー: {ex.Message}");
+                    }
+                }
+            }, token);
+        }
+
+        /// <summary>
+        /// 現在のアクティブサーバーとは別ポートで新しい翻訳サーバーを起動・ウォームアップし、
+        /// 準備が整い次第、会話を止めずに切り替える(旧プロセスは切替後に少し猶予を置いて終了)。
+        /// </summary>
+        private async Task SwapToFreshServerAsync()
+        {
+            // クラッシュ復旧の再起動処理などと競合しないよう、既に何か処理中ならこのサイクルは見送る
+            if (!await _serverLifecycleLock.WaitAsync(0)) return;
+            try
+            {
+                int oldPort = _activePort;
+                int newPort = OtherPort(oldPort);
+                var oldProcess = _serverProcess;
+
+                var newProcess = LaunchServerProcess(newPort);
+                if (newProcess == null)
+                {
+                    Console.WriteLine("[BlueGreen] 新サーバーの起動に失敗。既存サーバーを継続使用します");
+                    return;
+                }
+
+                bool ready = await WaitForServerReadyAsync(newPort, TimeSpan.FromSeconds(Math.Max(_warmupTimeoutSeconds, 15)));
+                if (!ready)
+                {
+                    Console.WriteLine("[BlueGreen] 新サーバーの準備確認に失敗。既存サーバーを継続使用し、新プロセスは破棄します");
+                    KillServerProcess(newProcess);
+                    return;
+                }
+                await WarmupAsync(newPort);
+
+                // 切り替え: 以降の新規リクエストは新ポートへ送られる
+                _activePort = newPort;
+                _serverProcess = newProcess;
+                _serverStarted = true;
+                Console.WriteLine($"[BlueGreen] port={newPort} の新サーバーに切り替えました (旧 port={oldPort})");
+
+                // 切替直前に発行済みのリクエストが完了する猶予を与えてから旧プロセスを終了する
+                _ = Task.Run(async () =>
+                {
+                    try { await Task.Delay(5000, _lifecycleCts.Token); } catch (OperationCanceledException) { }
+                    KillServerProcess(oldProcess);
+                    Console.WriteLine($"[BlueGreen] 旧サーバー(port={oldPort})を終了しました");
+                });
+            }
+            finally
+            {
+                _serverLifecycleLock.Release();
+            }
+        }
+
+        /// <summary>プロセスを穏当に、ダメなら強制的に終了させます。</summary>
+        private static void KillServerProcess(Process? proc)
+        {
+            try
+            {
+                if (proc != null && !proc.HasExited)
+                {
+                    proc.CloseMainWindow();
+                    if (!proc.WaitForExit(1500))
+                    {
+                        proc.Kill(entireProcessTree: true);
+                        proc.WaitForExit(1500);
+                    }
+                }
+            }
+            catch { /* 終了処理中の例外は握りつぶす */ }
+            finally
+            {
+                try { proc?.Dispose(); } catch { }
             }
         }
 
@@ -475,6 +669,9 @@ namespace Yakumo.Affect
             string script = $@"#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os
+import sys
+import time
+import ctypes
 import threading
 from flask import Flask, request, jsonify
 os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
@@ -485,6 +682,112 @@ app = Flask(__name__)
 translator = None
 _init_lock = threading.Lock()
 _infer_lock = threading.Lock()
+
+# ── 親プロセス監視ウォッチドッグ ──
+# 親(C#側)が正常終了/クラッシュ/強制終了のいずれであっても、このPythonプロセスが
+# 孤児化して動き続けることを防ぐ。親のPIDをコマンドライン引数で受け取り、
+# 一定間隔で生死を確認して、消えていれば自分も終了する。
+_PARENT_PID = int(sys.argv[1]) if len(sys.argv) > 1 else None
+
+# ── メモリ上限監視 ──
+# CPU推論はビーム探索の入力長に応じてアロケータが高水位マークを保持し続け、OSに返さない
+# 性質があり、対話が長く続くほどWorkingSetが段階的に増加していく。上限を超えたら自ら終了し、
+# C#側(TranslationService.EnsureServerAliveAsync)が次回リクエスト時に新しいプロセスを
+# 起動し直すことで、際限のない増加を防ぐ。
+_MEMORY_LIMIT_MB = int(sys.argv[2]) if len(sys.argv) > 2 else None
+
+# ── 待受ポート ──
+# ブルーグリーン切替のため、C#側から明示的に割り当てられたポートで待ち受ける。
+_PORT = int(sys.argv[3]) if len(sys.argv) > 3 else 5000
+
+class _ProcessMemoryCounters(ctypes.Structure):
+    _fields_ = [
+        ('cb', ctypes.c_ulong),
+        ('PageFaultCount', ctypes.c_ulong),
+        ('PeakWorkingSetSize', ctypes.c_size_t),
+        ('WorkingSetSize', ctypes.c_size_t),
+        ('QuotaPeakPagedPoolUsage', ctypes.c_size_t),
+        ('QuotaPagedPoolUsage', ctypes.c_size_t),
+        ('QuotaPeakNonPagedPoolUsage', ctypes.c_size_t),
+        ('QuotaNonPagedPoolUsage', ctypes.c_size_t),
+        ('PagefileUsage', ctypes.c_size_t),
+        ('PeakPagefileUsage', ctypes.c_size_t),
+    ]
+
+ctypes.windll.kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+ctypes.windll.psapi.GetProcessMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ProcessMemoryCounters), ctypes.c_ulong]
+ctypes.windll.psapi.GetProcessMemoryInfo.restype = ctypes.c_int
+
+def _own_working_set_mb():
+    # argtypes/restype を明示しないと GetCurrentProcess の疑似ハンドル(64bit)が
+    # ctypes既定の32bit int型で誤ってマーシャリングされ、GetProcessMemoryInfoが
+    # 常に失敗する(戻り値0、WorkingSetSizeも常に0のまま)ため、必ず明示する。
+    counters = _ProcessMemoryCounters()
+    counters.cb = ctypes.sizeof(_ProcessMemoryCounters)
+    handle = ctypes.windll.kernel32.GetCurrentProcess()
+    ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb)
+    return counters.WorkingSetSize / (1024.0 * 1024.0)
+
+def _parent_alive(pid):
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        exit_code = ctypes.c_ulong()
+        ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+        STILL_ACTIVE = 259
+        return exit_code.value == STILL_ACTIVE
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+def _watchdog():
+    while True:
+        time.sleep(5)
+
+        if _PARENT_PID is not None and not _parent_alive(_PARENT_PID):
+            # 親が死ぬとこのプロセスの標準出力パイプの読み取り側も一緒に失われているため、
+            # print自体が壊れたパイプへの書き込みで例外を出すことがある。
+            # os._exit(0) は print の成否に関わらず必ず実行されるようにする。
+            try:
+                print('[WATCHDOG] parent process (pid=%d) is gone, shutting down' % _PARENT_PID, flush=True)
+            except Exception:
+                pass
+            os._exit(0)
+
+        if _MEMORY_LIMIT_MB is not None:
+            try:
+                ws_mb = _own_working_set_mb()
+            except Exception:
+                ws_mb = 0
+            if ws_mb >= _MEMORY_LIMIT_MB:
+                # 推論処理中(ロック取得中)ならリクエストを壊さないよう次のサイクルまで見送る
+                if _infer_lock.acquire(False):
+                    _infer_lock.release()
+                    try:
+                        print('[WATCHDOG] working set %.1fMB exceeded limit %dMB, restarting' % (ws_mb, _MEMORY_LIMIT_MB), flush=True)
+                    except Exception:
+                        pass
+                    os._exit(0)
+
+# ── MKLバッファの明示解放 ──
+# MKL(PyTorchのCPU線形代数バックエンド)は性能優先で内部バッファを保持し続け、
+# プロセス終了までOSに返さない設計になっている(Intel公式ドキュメントにも明記)。
+# mkl_free_buffers()で明示的に解放を指示する。スレッドローカルな制限があるため、
+# 全リクエストを同一スレッドで処理する(threaded=False)ことと組み合わせて使う。
+try:
+    _mkl_rt = ctypes.CDLL('mkl_rt.dll')
+    _mkl_rt.mkl_free_buffers.restype = None
+except Exception as _mkl_e:
+    _mkl_rt = None
+    print('[MKL] mkl_rt.dll not available, buffer freeing disabled:', _mkl_e, flush=True)
+
+def _mkl_free_buffers():
+    if _mkl_rt is not None:
+        try:
+            _mkl_rt.mkl_free_buffers()
+        except Exception:
+            pass
 
 def ensure_translator():
     global translator
@@ -519,22 +822,32 @@ def translate_text():
 
     with _infer_lock:
         try:
-            {GetSafeCallCode(_activeModel)}
-        except RuntimeError as re:
             try:
-                print('[PY-ERR] RuntimeError first attempt:', re)
                 {GetSafeCallCode(_activeModel)}
-            except Exception as e2:
-                print('[PY-ERR] Fatal translation error after retry:', e2)
-                return jsonify({{'translated': text}})
-        except Exception as e:
-            print('[PY-ERR] General translation error:', e)
-            return jsonify({{'translated': text}})
+            except RuntimeError as re:
+                print('[PY-ERR] RuntimeError first attempt:', re)
+                try:
+                    {GetSafeCallCode(_activeModel)}
+                except Exception as e2:
+                    print('[PY-ERR] Fatal translation error after retry:', e2)
+                    result = text
+            except Exception as e:
+                print('[PY-ERR] General translation error:', e)
+                result = text
+        finally:
+            # 成功/失敗どちらの経路でも必ずMKLバッファ解放を試みる
+            _mkl_free_buffers()
 
     return jsonify({{'translated': result}})
 
 if __name__ == '__main__':
-    app.run(port=5000, threaded=True)
+    if _PARENT_PID is not None:
+        threading.Thread(target=_watchdog, daemon=True).start()
+    # threaded=False: 推論は_infer_lockで元々完全直列化されているため並行処理の恩恵はなく、
+    # 逆にリクエスト毎に新規スレッドが立つとMKLのスレッドローカルバッファ解放が
+    # 効かなくなる(mkl_free_buffersは呼び出しスレッド自身のバッファしか解放しない)。
+    # 常に同一スレッドで処理することで解放を確実に効かせる。
+    app.run(port=_PORT, threaded=False)
 ";
             File.WriteAllText(path, script, Encoding.UTF8);
         }
@@ -614,14 +927,15 @@ result = translator(prompt,
         /// - 成功: true を返す
         /// - タイムアウト: false を返す
         /// </summary>
+        /// <param name="port">対象サーバーのポート番号</param>
         /// <param name="timeout">待機の総タイムアウト時間</param>
-        private async Task<bool> WaitForServerReadyAsync(TimeSpan timeout)
+        private async Task<bool> WaitForServerReadyAsync(int port, TimeSpan timeout)
         {
             // 期限（デッドライン）を計算
             DateTime deadlineUtc = DateTime.UtcNow + timeout;
 
             // ヘルスチェックURIを生成
-            var healthUri = new Uri(_healthUrl);
+            var healthUri = new Uri(HealthUrl(port));
 
             // 期限に達するまでポーリングを繰り返す
             while (DateTime.UtcNow < deadlineUtc)
@@ -637,16 +951,26 @@ result = translator(prompt,
                     // 200なら準備完了
                     if (response.IsSuccessStatusCode)
                     {
-                        Console.WriteLine("[Health] 翻訳サーバー Ready");
+                        Console.WriteLine($"[Health] 翻訳サーバー Ready (port={port})");
                         return true;
                     }
 
                     // 200以外は未準備として少し待って再試行
                     Console.WriteLine($"[Health] NotReady: {(int)response.StatusCode}");
                 }
+                catch (TaskCanceledException)
+                {
+                    // 単回タイムアウト(5秒)。起動直後はモデルロード中で応答が遅いため正常な待機状態
+                    Console.WriteLine("[Health] WARNING: Waiting for server response / サーバーの応答を待っています");
+                }
+                catch (HttpRequestException)
+                {
+                    // ポート未オープン(接続拒否)も起動直後の正常な待機状態。短時間待って再試行
+                    Console.WriteLine("[Health] WARNING: Waiting for server response / サーバーの応答を待っています");
+                }
                 catch (Exception ex)
                 {
-                    // ポート未オープンなど起動直後は例外になりやすい。短時間待って再試行
+                    // その他のエラー
                     Console.WriteLine($"[Health] エラー: {ex.Message}");
                 }
 
@@ -660,9 +984,10 @@ result = translator(prompt,
 
         /// <summary>
         /// コールドスタート対策のダミー翻訳（ウォームアップ）を1回行います。
-        /// - 成功/失敗に関わらず致命扱いしません（ログのみ）。
+        /// - 成功/失敗に関わらず致命扱いしません（ログのみ）。呼び出し元がTCS等の状態管理を行います。
         /// </summary>
-        private async Task WarmupAsync()
+        /// <param name="port">対象サーバーのポート番号</param>
+        private async Task<bool> WarmupAsync(int port)
         {
             try
             {
@@ -675,22 +1000,21 @@ result = translator(prompt,
                     "application/json");
 
                 DateTime start = DateTime.UtcNow;
-                var response = await _httpClient.PostAsync(_serverUrl, payload, cts.Token);
+                var response = await _httpClient.PostAsync(TranslateUrl(port), payload, cts.Token);
                 double elapsedMs = (DateTime.UtcNow - start).TotalMilliseconds;
 
                 if (response.IsSuccessStatusCode)
-                    Console.WriteLine($"[Warmup] 成功 ({elapsedMs:0} ms)");
-                else
-                    Console.WriteLine($"[Warmup] 失敗: Status={(int)response.StatusCode} ({elapsedMs:0} ms)");
+                {
+                    Console.WriteLine($"[Warmup] 成功 (port={port}, {elapsedMs:0} ms)");
+                    return true;
+                }
+                Console.WriteLine($"[Warmup] 失敗: Status={(int)response.StatusCode} (port={port}, {elapsedMs:0} ms)");
+                return false;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Warmup] 例外: {ex.Message}");
-            }
-            finally
-            {
-                // 例外/失敗でもウォームアップ完了シグナルは返す（先へ進む）
-                _warmupTcs.TrySetResult(true);
+                Console.WriteLine($"[Warmup] 例外 (port={port}): {ex.Message}");
+                return false;
             }
         }
 
@@ -731,6 +1055,9 @@ result = translator(prompt,
         {
             try
             {
+                _disposed = true;
+                try { _lifecycleCts.Cancel(); } catch { }
+                _lifecycleCts.Dispose();
                 _httpClient?.Dispose();
                 _dictLock?.Dispose();
                 SafeShutdown();

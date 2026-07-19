@@ -47,6 +47,8 @@
     <None Update="affect.config.default">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- NLI.Config: INI形式の設定ファイル。XMLではないため None で登録 -->
+    <None Update="libs\NLI.Config" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="logs\" />

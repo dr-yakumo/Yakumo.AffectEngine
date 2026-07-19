@@ -32,7 +32,9 @@ namespace Yakumo.Affect
             {
                 DebugWriteLine("=== モデル選択 ===");
                 DebugWriteLine("選択されたモデル: GoEmotions (roberta-base-go_emotions)");
-                DebugWriteLine("実行エンジン: GoEmo_Core (直接分類・28→14マッピング)");
+                DebugWriteLine(IsGoEmoRaw28Mode()
+                    ? "実行エンジン: GoEmo_Core (直接分類・raw28出力)"
+                    : "実行エンジン: GoEmo_Core (直接分類・28→14マッピング)");
                 DebugWriteLine("================");
                 return await ClassifyByGoEmotionsAsync(text, role, k, threshold, properNouns);
             }

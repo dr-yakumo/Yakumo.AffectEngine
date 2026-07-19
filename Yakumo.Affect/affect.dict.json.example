@@ -1,5 +1,5 @@
 {
-  "$comment": "affect.dict.json.example — このファイルを affect.dict.json にコピーして編集してください。",
+  "$comment": "affect.dict.json.example — このファイルを affect.dict.json にコピーして編集してください。 / Copy this file to affect.dict.json and edit as needed.",
   "version": 1,
 
   "phraseDict": {
@@ -7,16 +7,72 @@
     "眠いなぁ": "I'm sleepy.",
     "怖い": "I'm scared.",
     "悲しい...": "I'm sad.",
-    "嬉しい！": "I'm so happy!"
+    "嬉しい！": "I'm so happy!",
+    "やった！欲しかったグラボが激安で買えた！": "I'm so happy! I bought the graphics card I wanted at a great price!",
+    "在庫が確保できずキャンセルとのこと…残念だ": "The stock couldn't be secured and it got cancelled... I'm disappointed.",
+    "窓際を予約していたのに中央カウンターに案内された": "I reserved a window seat but was guided to the center counter.",
+    "最悪だ、電車が遅れて会議に遅刻した": "This is awful. The train was late and I missed my meeting.",
+    "大好きなゲームの続編が発表された！待ってたよー！": "The sequel to my favorite game was announced! I've been waiting so long for this!",
+    "ゾッとした": "I was disgusted and horrified",
+    "鳥肌が立った": "I got goosebumps",
+    "鳥肌が止まらなかった": "I couldn't stop getting goosebumps",
+    "生理的に無理": "I find it physically repulsive",
+    "予告なしに上司が現れて、みんな固まってしまった。": "When my boss showed up without warning, everyone was stunned with surprise.",
+    "廃業したと思っていたお気に入りの店が復活していた。": "I was surprised to find that a favorite store I thought had closed was back open.",
+    "閉店していたはずのお店がリニューアルして復活していた。": "I was shocked to see the store I thought had closed had reopened after renovations.",
+    "引越し先の隣人が旧友だったとわかって言葉を失った。": "I was speechless with surprise when I realized my new neighbor was an old friend.",
+    "偶然にも全く同じ服を着た人とすれ違って二人で固まってしまった。": "By coincidence I passed someone in the exact same outfit, and we were both frozen in surprise.",
+    "退職すると思っていた先輩がまだいて、思わず二度見した。": "I did a double take when the colleague I thought had retired was still there.",
+    "ずっと連絡の取れなかった友人が隣の席に座っていて固まった。": "I was frozen in surprise when a friend I hadn't contacted in years was sitting right next to me.",
+    "財布の古いポケットに万円札が入っていて二度見した。": "I did a double take when I found a ten-thousand yen bill in an old pocket of my wallet.",
+    "腐ったものを食べてしまって気持ちが悪い。": "I ate something rotten and feel utterly disgusted and sick.",
+    "吐き気がした": "I felt nauseated and disgusted",
+    "食欲が一気に失せた": "completely lost my appetite in disgust",
+    "気分が最悪だった": "I was completely disgusted",
+    "生理的な嫌悪感を覚えた": "I felt physical disgust and revulsion",
+    "鳥肌が止まらない": "I can't stop feeling disgusted and horrified",
+    "全身鳥肌が立った": "my whole body recoiled in disgust and horror",
+    "見ているのが辛かった": "it was so disgusting I couldn't bear to watch",
+    "使う気になれなかった": "I was too disgusted to use it",
+    "座っているのが気持ち悪かった": "I felt disgusted just sitting there",
+    "密閉された空間でひどい臭いがして、気分が悪くなった。": "In an enclosed space, there was a terrible smell that made me feel utterly disgusted.",
+    "虫の死骸がたくさん転がっていて、通るのも嫌だった。": "There were many dead insects lying around and I was too disgusted to pass through.",
+    "泥酔して路上で嘔吐している人を見て、顔をそむけた。": "I turned away in disgust when I saw a drunk person vomiting on the street.",
+    "不衛生な調理場の動画を見てしまって、食欲がなくなった。": "I accidentally watched a video of an unsanitary kitchen and felt completely disgusted, losing my appetite.",
+    "汚水が溢れた場所を歩かなければならず、全身鳥肌が立った。": "I had to walk through an area flooded with filthy water and felt disgusted all over.",
+    "排水口にびっしりと汚れが詰まっているのを見て、鳥肌が立った。": "I saw a drain completely clogged with filth and was disgusted.",
+    "誰かが吐いた後の場所を歩かなければならなくて、気分が最悪だった。": "I had to walk through a place where someone had vomited and felt utterly disgusted."
   },
 
   "properNouns": {
     "説明: 固有名詞マップ（部分一致）。翻訳前にテキスト内の固有名詞を英語表記に置換します。": "",
-    "株式会社サンプル": "Sample Corporation"
+    "株式会社サンプル": "Sample Corporation",
+    "テンション爆上がり": "incredibly pumped up and overjoyed",
+    "テンション上がった": "got so excited and happy",
+    "達成感が半端ない": "the sense of accomplishment is absolutely incredible",
+    "感無量": "overwhelmingly moved with deep joy",
+    "ほくほく": "feeling warm and deeply happy"
   },
 
   "corrections": {
     "説明: 英語後処理補正（大文字小文字無視の部分一致）。翻訳後の誤訳パターンを修正します。": "",
-    "G Lab": "graphics card"
+    "G Lab": "graphics card",
+    "inventory back": "stock",
+    "central counter": "center counter",
+    "the tension went up": "I got so excited",
+    "made me nervous": "got me so excited",
+    "in short supply": "is absolutely incredible",
+    "feeling-freeness": "a deep sense of fulfillment and joy",
+    "can't get this feeling of release": "love this amazing feeling of freedom",
+    "a lonely life": "living alone for the first time",
+    "couldn't help but cry": "couldn't help but cheer with joy",
+    "bird skin": "goosebumps",
+    "couldn't stop the bird skin": "I couldn't stop getting goosebumps",
+    "whole skin rose": "I got goosebumps all over",
+    "physiologically impossible": "I find it physically repulsive",
+    "cough ticket": "cough etiquette",
+    "make fun of people who are trying": "mock and disrespect people who work hard",
+    "got blood on my head": "I was furious",
+    "What do you think of consumers": "consumers are being disrespected"
   }
 }

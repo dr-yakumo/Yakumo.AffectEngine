@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Yakumo.Affect.Sample": {
+      "commandName": "Project",
+      "commandLineArgs": "--lang=jp"
+    }
+  }
+}

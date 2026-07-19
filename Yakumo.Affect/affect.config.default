@@ -2,134 +2,178 @@
 ; Yakumo Affect Engine — Default Configuration
 ; ================================================================
 ;
-; このファイルは affect.config.default（テンプレート）です。
-; 実際に使用する場合は affect.config にコピーしてください:
+; [EN] This file is affect.config.default (a template).
+;      Copy it to affect.config before use:
+;        copy affect.config.default affect.config   (Windows)
+;        cp   affect.config.default affect.config   (Linux/Mac)
+;      Running install.ps1 performs this copy automatically.
+; [JP] このファイルは affect.config.default（テンプレート）です。
+;      実際に使用する場合は affect.config にコピーしてください:
+;        copy affect.config.default affect.config   (Windows)
+;        cp   affect.config.default affect.config   (Linux/Mac)
+;      install.ps1 を実行すると自動でコピーされます。
 ;
-;   copy affect.config.default affect.config   (Windows)
-;   cp   affect.config.default affect.config   (Linux/Mac)
+; [EN] Load order (low -> high priority):
+;        1. AIClient.Config   (shared AI-client settings)
+;        2. affect.config     (Affect Engine settings; copy of this file)
+;        3. File pointed to by the AFFECT_CONFIG environment variable (highest)
+; [JP] 読み込み優先順位 (低 → 高):
+;        1. AIClient.Config   (AIクライアント共通設定)
+;        2. affect.config     (Affect Engine 専用設定) ← このファイルのコピー
+;        3. 環境変数 AFFECT_CONFIG が指すファイル (最優先)
 ;
-; または install.ps1 を実行すると自動でコピーされます。
+; [EN] Format: INI (section [name], key = value).
+;      Lines starting with ; or # are comments. Anything after ; or #
+;      on a value line is also stripped as a comment.
+; [JP] フォーマット: INI 形式 (セクション [name]、キー=値)。
+;      ; または # で始まる行はコメント。値の行末の ; # 以降も
+;      コメントとして除去されます。
 ;
-; 読み込み優先順位 (低 → 高):
-;   1. AIClient.Config       (AIクライアント共通設定)
-;   2. affect.config         (Affect Engine 専用設定) ← このファイルのコピー
-;   3. 環境変数 AFFECT_CONFIG が指すファイル (最優先)
-;
-; フォーマット: INI 形式 (セクション [name]、キー=値)
-;              ; または # で始まる行はコメント
-;              値の行末 ; # 以降もコメントとして除去されます
+; [EN] NOTE: Keys marked "(legacy path only)" have no effect while
+;      Model = goemo-roberta-base (the recommended default).
+; [JP] 注記: 「(レガシーパス専用)」と記載のあるキーは、Model = goemo-roberta-base
+;      （推奨デフォルト）で動作している間は挙動に影響しません。
 ; ================================================================
 
 
 ; ================================================================
-; [nli_model] — モデル選択・推論設定
+; [nli_model] — Model selection & inference settings
+;              モデル選択・推論設定
 ; ================================================================
 [nli_model]
 
-; 使用するモデル
-; 選択肢: goemo-roberta-base | roberta-large-mnli | bert_sentiment | xnli_mbert
-; 推奨  : goemo-roberta-base (28→14ラベルマッピング、高精度・高速)
-;          roberta-large-mnli は研究・フォールバック用
+; [EN] Model to use.
+;      Options: goemo-roberta-base | roberta-large-mnli | bert_sentiment | xnli_mbert
+;      Recommended: goemo-roberta-base (28->14 label mapping, fast & accurate).
+;      roberta-large-mnli is kept for research / fallback use.
+; [JP] 使用するモデル。
+;      選択肢: goemo-roberta-base | roberta-large-mnli | bert_sentiment | xnli_mbert
+;      推奨  : goemo-roberta-base (28→14ラベルマッピング、高精度・高速)
+;      roberta-large-mnli は研究・フォールバック用
 Model = goemo-roberta-base
 
-; ONNX モデル精度
-; 選択肢: fp32 | fp16
-; fp16: GPU 使用時に高速化。CPU 推論では精度低下の恐れあり
+; [EN] ONNX model precision. Options: fp32 | fp16
+;      fp16 speeds up GPU inference; may reduce accuracy on CPU.
+; [JP] ONNX モデル精度。選択肢: fp32 | fp16
+;      fp16 は GPU 使用時に高速化。CPU 推論では精度低下の恐れあり
 ModelPrecision = fp32
 
-; NLI スコア計算方式 (RoBERTa/BERT 系のみ有効)
-; 選択肢: ent_minus_neu | ent_only | margin | log_margin
+; [EN] NLI score computation mode. (legacy path only)
+;      Options: ent_minus_neu | ent_only | margin | log_margin
+; [JP] NLI スコア計算方式。(レガシーパス専用)
+;      選択肢: ent_minus_neu | ent_only | margin | log_margin
 ScoreMode = ent_minus_neu
 
-; スコア集約方法 (複数プロンプト使用時)
-; 選択肢: max | mean | min
+; [EN] Score aggregation across multiple prompts. (legacy path only)
+;      Options: max | mean | min
+; [JP] スコア集約方法 (複数プロンプト使用時)。(レガシーパス専用)
+;      選択肢: max | mean | min
 Aggregate = max
 
-; Softmax 温度パラメータ (0.1 〜 1.0 推奨)
-; 低いほど確信度が高い予測に集中する
+; [EN] Softmax temperature (0.1 - 1.0 recommended). Lower = sharper. (legacy path only)
+; [JP] Softmax 温度パラメータ (0.1〜1.0 推奨)。低いほど確信度の高い予測に集中。(レガシーパス専用)
 Temperature = 0.3
 
-; DirectML (GPU / AMD) を使用するか
-; true にすると対応 GPU を使用して推論を高速化
+; [EN] Use DirectML (GPU) for inference. Falls back to CPU automatically
+;      when DirectML is unavailable.
+; [JP] DirectML (GPU) を推論に使用するか。DirectML が利用できない場合は
+;      自動的に CPU にフォールバックします。
 UseDirectML = false
 
-; DirectML デバイス ID (複数 GPU 環境でデバイスを指定する場合)
+; [EN] DirectML device ID (for multi-GPU environments).
+; [JP] DirectML デバイス ID (複数 GPU 環境でデバイスを指定する場合)。
 DirectMLDeviceId = 0
 
-; 驚き (surprise) 判定: スコアがこの値以上なら驚きと判定
+; [EN] Surprise detection: minimum score to classify as surprised.
+; [JP] 驚き (surprise) 判定: スコアがこの値以上なら驚きと判定。
 SurpriseThreshold = 0.50
 
-; 驚き判定: Top1 スコアとの差分閾値
+; [EN] Surprise detection: minimum gap over the 2nd-ranked score.
+; [JP] 驚き判定: 2位スコアとの差分閾値。
 SurpriseDelta = 0.10
 
-; 驚き判定: Top1 スコアに対する相対スコア比の最小値
+; [EN] Surprise detection: minimum relative ratio vs. the top score.
+;      (legacy BERT path only; the GoEmotions path uses a fixed 0.60)
+; [JP] 驚き判定: Top1 スコアに対する相対スコア比の最小値。
+;      (レガシーBERTパス専用。GoEmotions パスは固定値 0.60 を使用)
 SurpriseRelativeMin = 0.80
 
-; 驚き判定: 2位スコアとの最小差分
+; [EN] Surprise detection: minimum gap over the 2nd score. (legacy BERT path only)
+; [JP] 驚き判定: 2位スコアとの最小差分。(レガシーBERTパス専用)
 SurpriseSecondDiffMin = 0.18
 
-; RoBERTa バッチ処理モード (roberta-large-mnli のみ有効)
-; 選択肢: auto | always | off
+; [EN] RoBERTa batching mode. Options: auto | always | off (legacy path only)
+; [JP] RoBERTa バッチ処理モード。選択肢: auto | always | off (レガシーパス専用)
 RobertaBatching = auto
 
-; RoBERTa バッチ処理を有効にするサンプル数の閾値 (auto モード時)
+; [EN] Sample-count threshold to enable batching in auto mode. (legacy path only)
+; [JP] auto モード時にバッチ処理を有効化するサンプル数の閾値。(レガシーパス専用)
 RobertaBatchThreshold = 12
 
-; RoBERTa バッチサイズ: GPU 使用時
+; [EN] RoBERTa batch size when using GPU. (legacy path only)
+; [JP] RoBERTa バッチサイズ: GPU 使用時。(レガシーパス専用)
 RobertaBatchSize.GPU = 64
 
-; RoBERTa バッチサイズ: CPU 使用時
+; [EN] RoBERTa batch size when using CPU. (legacy path only)
+; [JP] RoBERTa バッチサイズ: CPU 使用時。(レガシーパス専用)
 RobertaBatchSize.CPU = 16
 
 
 ; ================================================================
-; [nli_emotion] — 感情ラベル・フィルタリング設定
+; [nli_emotion] — Emotion labels & filtering settings
+;                感情ラベル・フィルタリング設定
 ; ================================================================
 [nli_emotion]
 
-; 感情フィルタリングを有効にするか
-; true : Polarity Gate DLL (存在する場合) によるフィルタリング
-; false: 単純スコア降順 Top-K (DefaultTopKFilter)
+; [EN] Enable emotion post-filtering.
+;      true : filtering via the Polarity Gate DLL (when present)
+;      false: simple descending Top-K (DefaultTopKFilter)
+; [JP] 感情フィルタリングを有効にするか。
+;      true : Polarity Gate DLL (存在する場合) によるフィルタリング
+;      false: 単純スコア降順 Top-K (DefaultTopKFilter)
 EnableFiltering = true
 
-; 使用する感情ラベルセット
-; 選択肢:
-;   basic    — 基本 7 ラベル + 設定に応じたポジ拡張 (最大 10 ラベル)
-;   extended — 全 14 ラベル (デフォルト)
-;   auto     — 基本 7 ラベルで推論し、中立 or 接戦時に全 14 ラベルで再試行
+; [EN] Active emotion label set.
+;      basic    — base 7 labels + optional positive extensions (up to 10)
+;      extended — all 14 labels
+;      auto     — behaves like extended on the GoEmotions path
+; [JP] 使用する感情ラベルセット。
+;      basic    — 基本 7 ラベル + 設定に応じたポジ拡張 (最大 10 ラベル)
+;      extended — 全 14 ラベル
+;      auto     — GoEmotions パスでは extended と同等に動作
 LabelSet = auto
 
-; [auto モード] Top1 が中立のとき全ラベルで再推論するか
-ExtendedProbe.OnNeutral = true
-
-; [auto モード] Top1-Top2 のスコア差がこの値未満なら全ラベルで再推論
-ExtendedProbe.TieMargin = 0.05
-
-; 拡張ラベル (basic 以外) のプロンプト数上限
-; 基本 7 ラベル以外の拡張ラベルに使用するプロンプト件数を制限 (軽量化)
+; [EN] Max prompts per extended label (lightweight mode). (legacy path only)
+; [JP] 拡張ラベルのプロンプト数上限 (軽量化)。(レガシーパス専用)
 ExtendedPromptsPerLabel = 2
 
-; [basic モード] ポジティブ拡張: 親しみ・愛情 (affection) を有効にするか
+; [EN] [basic mode] Include affection as a positive label.
+; [JP] [basic モード] ポジティブ拡張: 親しみ・愛情 (affection) を有効にするか。
 BasicPos.IncludeAffection = true
 
-; [basic モード] ポジティブ拡張: 期待 (anticipation) を有効にするか
+; [EN] [basic mode] Include anticipation as a positive label.
+; [JP] [basic モード] ポジティブ拡張: 期待 (anticipation) を有効にするか。
 BasicPos.IncludeAnticipation = true
 
-; 欲望 (desire) ラベルの有効/無効 (モード別)
+; [EN] Enable/disable the "desire" label per label-set mode.
+; [JP] 欲望 (desire) ラベルの有効/無効 (モード別)。
 EnableDesire.Basic    = false
 EnableDesire.Extended = true
 EnableDesire.Auto     = true
 
-; ラベル重みオーバーライド (省略時はビルトインのデフォルト値を使用)
-; 値は乗数: 1.0 = 変更なし / 0.5 = 半減 / 1.5 = 1.5 倍
-; canonical 英語ラベル名で指定する
+; [EN] Per-label score weight overrides (multipliers; omit to use built-ins).
+;      1.0 = unchanged / 0.5 = halved / 1.5 = boosted.
+;      Specify by canonical English label name.
+; [JP] ラベル重みオーバーライド (乗数。省略時はビルトインのデフォルト値)。
+;      1.0 = 変更なし / 0.5 = 半減 / 1.5 = 1.5 倍。
+;      canonical 英語ラベル名で指定する。
 LabelWeight.surprise     = 0.85
-LabelWeight.anger        = 1.00  ; 0.90 → 1.00
-LabelWeight.joy          = 0.90  ; 0.95 → 0.90
-LabelWeight.sadness      = 1.20  ; 1.00 → 1.20（悲しみ検出強化）
-LabelWeight.fear         = 0.95  ; 1.00 → 0.95
-LabelWeight.disgust      = 1.00
-LabelWeight.neutral      = 0.88  ; 0.90 → 0.88
+LabelWeight.anger        = 1.00
+LabelWeight.joy          = 1.00
+LabelWeight.sadness      = 1.20
+LabelWeight.fear         = 0.95
+LabelWeight.disgust      = 1.30
+LabelWeight.neutral      = 0.65
 LabelWeight.affection    = 1.00
 LabelWeight.trust        = 1.00
 LabelWeight.resentment   = 1.00
@@ -138,115 +182,212 @@ LabelWeight.shame        = 1.00
 LabelWeight.anticipation = 1.00
 LabelWeight.desire       = 1.00
 
-; プロンプト数オーバーライド (省略時はデフォルト件数を使用)
-; 指定したラベルのプロンプト数を先頭 N 件に強制 (N >= 1)
-; localized 名 (日本語) または canonical 英語名で指定可
+; [EN] Prompt-count overrides (force first N prompts for a label, N >= 1).
+;      Accepts localized (Japanese) or canonical English names. (legacy path only)
+; [JP] プロンプト数オーバーライド (指定ラベルのプロンプト数を先頭 N 件に強制、N >= 1)。
+;      localized 名 (日本語) または canonical 英語名で指定可。(レガシーパス専用)
 ;Prompts.Override.joy     = 1
 ;Prompts.Override.sadness = 3
 
-; RoBERTa 感情閾値強調を有効にするか (roberta-large-mnli のみ有効)
+; [EN] Enable RoBERTa per-label threshold emphasis. (legacy path only)
+; [JP] RoBERTa 感情閾値強調を有効にするか。(レガシーパス専用)
 EnableRobertaThresholds = true
 
-; Platt Scaling キャリブレーションを有効にするか
-; true にするには data/stats/calibration_platt.json が必要
-; ※ 現在は無効 (未調整) — 将来の再有効化用として設定のみ残す
+; [EN] Enable Platt-scaling calibration. Requires
+;      data/stats/calibration_platt.json. Currently disabled (untuned);
+;      the key is kept for future re-enabling.
+; [JP] Platt Scaling キャリブレーションを有効にするか。
+;      data/stats/calibration_platt.json が必要。
+;      ※ 現在は無効 (未調整) — 将来の再有効化用として設定のみ残す。
 Calibration.Enabled = false
 
-; GoEmotions ラベルモード（--embed-generate / --phase0 コマンド使用時）
-; raw28: 原本28ラベル（評価用） / yakumo14: 14ラベルマッピング（本番用）
+; [EN] GoEmotions label mode.
+;      yakumo14: map to the 14 Yakumo labels (production)
+;      raw28   : return the raw 28 GoEmotions labels (experimental / evaluation;
+;                label weights, role weights and Japanese label names do not apply)
+; [JP] GoEmotions ラベルモード。
+;      yakumo14: 14ラベルマッピング (本番用)
+;      raw28   : 原本28ラベルをそのまま返す (実験・評価用。ラベル重み・ロール重み・
+;                日本語ラベル名は適用されません)
 GoEmoLabelMode = yakumo14
 
-; --- 追加: PolarityGate 挙動制御キー ---
-; 極性衝突時に中立スコアを合成昇格するか（false推奨: 個別感情を保持）
+; ----------------------------------------------------------------
+; [EN] Label promotion thresholds (GoEmotions path).
+;      Post-processing that promotes an aggregated emotion signal when the
+;      28->14 mapping buries it. Lower = promotes more easily (higher FP risk).
+; [JP] ラベル昇格閾値 (GoEmotions パス)。
+;      28→14 マッピングで埋もれた感情シグナルを後処理で昇格させる仕組み。
+;      低いほど昇格しやすい (FP 増加リスクあり)。
+; ----------------------------------------------------------------
+
+; [EN] Promotion threshold for the aggregated disgust signal.
+; [JP] disgust 昇格: annoyance+disapproval 集約スコアの昇格閾値。
+DisgustPromotion.Threshold = 0.32
+
+; [EN] Promotion threshold for the aggregated anger signal.
+; [JP] anger 昇格: annoyance+disapproval 集約スコアの昇格閾値。
+AngerPromotion.Threshold = 0.38
+
+; [EN] Promotion threshold for the aggregated surprise signal.
+; [JP] surprise 昇格: realization 集約スコアの昇格閾値。
+SurprisePromotion.Threshold = 0.35
+
+; ----------------------------------------------------------------
+; [EN] PolarityGate plugin tuning keys (advanced).
+;      The gate itself is enabled by (a) the presence of
+;      Yakumo.Affect.PolarityGate.dll (falls back to DefaultTopKFilter when
+;      absent) and (b) EnableFiltering above — there is no dedicated section.
+;      The number of returned Top-K emotions is the API argument k (default 3).
+;      The plugin's internal behavior is intentionally undocumented
+;      (binary-only distribution). Leave the keys below at their defaults
+;      unless you have a specific reason to change them.
+; [JP] PolarityGate プラグイン調整キー (上級者向け)。
+;      PolarityGate 自体の有効/無効は設定キーではなく、
+;        (a) Yakumo.Affect.PolarityGate.dll の配置有無 (無ければ DefaultTopKFilter)
+;        (b) 上記 EnableFiltering
+;      の2つで決まる。返却する TopK 感情数は分類 API の引数 k (既定値 3)。
+;      プラグインの内部挙動は非公開です (バイナリのみ配布)。
+;      以下のキーは、特別な理由がない限りデフォルト値のまま使用してください。
+; ----------------------------------------------------------------
+
+; [EN] Enables additional conflict-resolution behavior on polarity conflicts.
+;      false is recommended (preserves individual emotions).
+; [JP] 極性衝突時の追加解決動作を有効にするか (false 推奨: 個別感情を保持)。
 NeutralizeConflicts = false
-; 衝突判定の閾値（|pos合計 - neg合計| がこれ未満なら拮抗とみなす）
+
+; [EN] Internal tuning thresholds for the PolarityGate plugin.
+; [JP] PolarityGate プラグイン内部の調整閾値。
 ConflictNeutralDelta = 0.045
-; ポジ/ネガ支配判定のマージン（支配側の合計がこれ以上大きければ片側除外）
 DominanceSumMargin = 0.30
-; 悲しみ優先判定マージン（悲しみがこの差以内なら優先昇格）
 SadnessPriorityMargin = 0.09
-; PolarityGate の詳細ログを出力するか
-PolarityGateVerbose = false
-; 中立スコアの下限フロア
 NeutralFloor = 0.15
-; 中立昇格スコアの上限
 LimitNeutralPromote = 0.87
+
+; [EN] Verbose logging for the PolarityGate plugin.
+; [JP] PolarityGate の詳細ログを出力するか。
+PolarityGateVerbose = false
 
 
 ; ================================================================
-; [nli_translation] — 翻訳サービス設定 (日本語入力時)
+; [nli_translation] — Translation service (Japanese input)
+;                    翻訳サービス設定 (日本語入力時)
 ; ================================================================
 [nli_translation]
 
-; 使用する翻訳モデル
-; 選択肢:
-;   nllb  — 高精度・文脈理解 (facebook/nllb-200-distilled-600M)
-;           ライセンス: CC-BY-NC-4.0 (商用利用時は要確認)
-;   opus  — 軽量・高速 (Helsinki-NLP/opus-mt-ja-en, MIT)
-;   mt5   — バランス型 (google/mt5-small, Apache 2.0)
-Model = nllb
+; [EN] Translation model.
+;      opus  — light & fast   (Helsinki-NLP/opus-mt-ja-en, MIT ✅ commercial OK) <- default
+;      nllb  — high accuracy  (facebook/nllb-200-distilled-600M,
+;              CC-BY-NC-4.0 ⚠️ NON-COMMERCIAL ONLY)
+;      mt5   — balanced       (google/mt5-small, Apache 2.0 ✅ commercial OK)
+; [JP] 使用する翻訳モデル。
+;      opus  — 軽量・高速 (Helsinki-NLP/opus-mt-ja-en, MIT ✅ 商用可) ← デフォルト
+;      nllb  — 高精度・文脈理解 (facebook/nllb-200-distilled-600M,
+;              CC-BY-NC-4.0 ⚠️ 非商用のみ)
+;      mt5   — バランス型 (google/mt5-small, Apache 2.0 ✅ 商用可)
+Model = opus
 
-; 翻訳品質モード (Model が未指定 or 無効な場合のフォールバック制御)
-; 選択肢: high | fast
+; [EN] Quality mode (fallback control when Model is unset/invalid). high | fast
+; [JP] 翻訳品質モード (Model が未指定 or 無効な場合のフォールバック制御)。high | fast
 Quality = high
 
-; 翻訳 HTTP タイムアウト (秒)
+; [EN] Translation HTTP timeout in seconds.
+; [JP] 翻訳 HTTP タイムアウト (秒)。
 TimeoutSeconds = 180
 
-; 翻訳サーバーウォームアップ待機タイムアウト (秒)
+; [EN] Server warm-up wait timeout in seconds.
+; [JP] 翻訳サーバーウォームアップ待機タイムアウト (秒)。
 WarmupTimeoutSeconds = 30
 
-; 翻訳失敗時のリトライ回数
+; [EN] Retry count on translation failure.
+; [JP] 翻訳失敗時のリトライ回数。
 RetryCount = 1
 
-; リトライ時のバックオフ初期値 (ミリ秒、以降 2 倍ずつ増加)
+; [EN] Initial retry backoff in ms (doubles each retry).
+; [JP] リトライ時のバックオフ初期値 (ミリ秒、以降 2 倍ずつ増加)。
 RetryBackoffMs = 500
+
+; [EN] Base port for the translation server. Blue-green switching actually
+;      alternates between BasePort and BasePort+1 (e.g. 5000/5001).
+; [JP] 翻訳サーバーが待ち受ける基点ポート。ブルーグリーン切替のため実際には
+;      BasePort と BasePort+1 の2ポートを交互に使用する (例: 5000/5001)。
+BasePort = 5000
+
+; [EN] Memory threshold (MB) for blue-green switching.
+;      CPU beam-search inference retains allocator high-water marks and does not
+;      return them to the OS, so the active server's working set grows step-wise
+;      during long conversations. When this threshold is reached, a new server is
+;      started and warmed up on the other port in the background, then traffic is
+;      switched without interrupting the conversation (the old process exits
+;      after the switch).
+;      NOTE: Setting this below the post-load baseline memory (~700 MB measured)
+;      causes immediate switch loops right after startup — leave ample headroom.
+; [JP] ブルーグリーン切替のメモリ閾値 (MB)。
+;      CPU推論はビーム探索の入力長に応じてアロケータが高水位マークを保持し続け
+;      OSに返さない性質があり、対話が長く続くほどアクティブサーバーの WorkingSet が
+;      段階的に増加していく。この閾値に達すると、裏でもう一方のポートに新しい
+;      翻訳サーバーを起動・ウォームアップし、準備が整い次第、会話を止めずに
+;      切り替える (旧プロセスは切替後に終了)。
+;      注意: モデルロード直後の基準メモリ使用量 (実測 700MB 前後) より低い値にすると、
+;      起動直後から切替を繰り返すことになるため、必ず十分な余裕を持たせること。
+BlueGreenSwapThresholdMB = 1024
+
+; [EN] Memory polling interval (seconds) for blue-green switching.
+; [JP] ブルーグリーン切替のメモリ監視間隔 (秒)。
+BlueGreenCheckIntervalSeconds = 10
+
+; [EN] Emergency memory cap (MB) for the translation server (Python process).
+;      A last-resort guard for when blue-green switching could not keep up.
+;      Above this cap the server exits itself and is restarted automatically on
+;      the same port at the next translation request (zero-downtime is NOT
+;      guaranteed on this path). Keep this well above BlueGreenSwapThresholdMB;
+;      it should never fire in normal operation.
+; [JP] 翻訳サーバー (Pythonプロセス) の緊急メモリ上限 (MB)。
+;      ブルーグリーン切替が何らかの理由で間に合わなかった場合の最終防波堤。
+;      この上限を超えると翻訳サーバーが自ら終了し、次回の翻訳リクエスト時に
+;      同じポートで自動的に再起動される (この経路では切替の無停止性は保証されない)。
+;      BlueGreenSwapThresholdMB より十分大きい値にすること (通常運用では発火しない想定)。
+ServerMemoryLimitMB = 1536
 
 
 ; ================================================================
-; [embedding] — Embedding ベース再スコアリング設定
+; [embedding] — Embedding-based rescoring
+;              Embedding ベース再スコアリング設定
 ; ================================================================
 [embedding]
 
-; Embedding ベースの再スコアリングを有効にするか
-; true にすると類似事例投票で NLI スコアを補正
-; 要件: VectorIndex (data/embedding_index.bin) が必要
+; [EN] Enable embedding-based rescoring (kNN vote correction of scores).
+;      Requires a VectorIndex (data/embedding_index.bin).
+; [JP] Embedding ベースの再スコアリングを有効にするか
+;      (類似事例投票でスコアを補正)。VectorIndex (data/embedding_index.bin) が必要。
 Rescoring.Enabled = false
 
-; 類似事例検索の Top-K 数
+; [EN] Top-K neighbors for similarity search.
+; [JP] 類似事例検索の Top-K 数。
 Rescoring.TopK = 30
 
-; 類似度の最小閾値 (0.0 〜 1.0)
+; [EN] Minimum cosine similarity (0.0 - 1.0).
+; [JP] 類似度の最小閾値 (0.0〜1.0)。
 Rescoring.MinSimilarity = 0.60
 
-; IDF 重み付けを使用するか (頻出ラベルへの過剰投票を抑制)
+; [EN] Use IDF weighting (suppresses over-voting by frequent labels).
+; [JP] IDF 重み付けを使用するか (頻出ラベルへの過剰投票を抑制)。
 Rescoring.IdfWeighting = true
 
-; IDF ダンピング閾値
-; 類似事例数がこれ未満の場合に IDF 効果を線形減衰させる
+; [EN] IDF damping threshold: IDF effect is linearly damped when the
+;      neighbor count is below this value.
+; [JP] IDF ダンピング閾値: 類似事例数がこれ未満の場合に IDF 効果を線形減衰させる。
 Rescoring.IdfDampingThreshold = 20
 
-; 中立 (neutral) が Top1 のとき再スコアリングをトリガーするか
+; [EN] Trigger rescoring when neutral is the top-1 label.
+; [JP] 中立 (neutral) が Top1 のとき再スコアリングをトリガーするか。
 Rescoring.TriggerOnNeutral = true
 
-; 接戦判定マージン (Top1-Top2 差がこれ未満なら再スコアリングをトリガー)
+; [EN] Tie margin: rescoring triggers when top1 - top2 is below this value.
+; [JP] 接戦判定マージン (Top1-Top2 差がこれ未満なら再スコアリングをトリガー)。
 Rescoring.NeutralMargin = 0.08
 
-; NLI スコアの融合比率 (Embedding 比率 = 1.0 - この値)
-; 例: 0.70 → NLI 70% + Embedding 30%
+; [EN] Fusion ratio for the original scores (embedding ratio = 1.0 - value).
+;      e.g. 0.70 -> original 70% + embedding 30%.
+; [JP] 元スコアの融合比率 (Embedding 比率 = 1.0 - この値)。
+;      例: 0.70 → 元スコア 70% + Embedding 30%。
 Rescoring.NliWeight = 0.70
-
-
-; ================================================================
-; [polarity_gate] — Polarity Gate 設定
-; ================================================================
-; Polarity Gate は Yakumo.Affect.PolarityGate.dll が必要です。
-; DLL が存在しない場合は DefaultTopKFilter (単純スコア降順 Top-K) が使用されます。
-; 設定キーの詳細は docs/PolarityGate.md を参照してください。
-[polarity_gate]
-
-; Polarity Gate を有効にするか (DLL が存在する場合のみ有効)
-Enabled = true
-
-; 返却する TopK 感情数
-TopK = 3

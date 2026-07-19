@@ -7,14 +7,28 @@
 Emotion analysis library for .NET 8 — understands **Japanese and English** feelings in text.  
 Built on GoEmotions RoBERTa (ONNX) with DirectML support for fast GPU/CPU inference.
 
+🧠 Yakumo.AffectEngine is a **static AI**: pretrained deep-learning models run frozen-weight
+inference fully on your machine — no runtime learning, no cloud, reproducible results.
+Tunable via configuration and user dictionaries (proper nouns, phrases, and translation fixes).
+
 .NET 8 向け感情分析ライブラリ。**日本語・英語**のテキストから感情を読み取ります。  
 GoEmotions RoBERTa (ONNX) を採用し、DirectML で GPU/CPU 高速推論に対応。
+
+🧠 本ライブラリは**静的AI**です — 学習済み深層学習モデルによる固定重み推論を
+完全ローカルで実行します。実行時学習なし・クラウド不要・再現性のある結果。
+設定ファイルによるチューニングと、ユーザー辞書（固有名詞・フレーズ・誤訳補正）に対応。
 
 
 ---
 
-📝 Note: Documentation, installer (install.ps1), and interactive sample app are currently in preparation and will be released soon.
-📝 注記: ドキュメント、インストーラ（install.ps1）、および対話式サンプルプログラムは現在作成中で、近日公開予定です。
+📝 Note: A ready-to-run package (sample app + installer) is available on the [Releases](https://github.com/dr-yakumo/Yakumo.AffectEngine/releases) page.
+📝 注記: すぐに使えるパッケージ（サンプルアプリ + インストーラー同梱の ZIP）は [Releases](https://github.com/dr-yakumo/Yakumo.AffectEngine/releases) ページから入手できます。
+
+## Documentation / ドキュメント
+
+- 📖 [Public API Reference (English)](Yakumo.Affect/YAKUMO_NLI_API_en.md)
+- 📖 [公開 API リファレンス（日本語）](Yakumo.Affect/YAKUMO_NLI_API_jp.md)
+
 ## Features / 機能
 
 - 🎭 **14-label multi-label emotion classification** (joy, sadness, anger, fear, disgust, surprise, neutral, and more)  
@@ -37,6 +51,7 @@ GoEmotions RoBERTa (ONNX) を採用し、DirectML で GPU/CPU 高速推論に対
 ### Runtime / ランタイム
 - [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)
 - Python 3.9 or later — required for Japanese translation / 日本語翻訳に必要
+- [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) — required by PyTorch / ONNX Runtime. The installer can set it up automatically / PyTorch・ONNX Runtime の実行に必要（インストーラーが自動導入できます）
 
 ### Python packages / Python パッケージ
 pip install flask transformers torch sentencepiece protobuf
@@ -49,9 +64,9 @@ pip install flask transformers torch sentencepiece protobuf
 ### Optional / オプション
 - DirectML-compatible GPU (AMD / Intel / NVIDIA) — for faster inference / 高速推論に使用
 
-### ⚠️ For experienced users / 上級者向け
-- This library currently requires manual setup of Python environment, ONNX models, and a local Flask translation server. A one-click installer is planned but not yet available. Beginners are advised to wait for the installer release.
-- 現在、Python 環境・ONNX モデル・ローカル Flask 翻訳サーバーの手動セットアップが必要です。ワンクリックインストーラは開発中です。初心者の方はインストーラ公開まで少々お待ちください。
+### 🛠️ Setup / セットアップ
+- Download the ZIP from the [Releases](https://github.com/dr-yakumo/Yakumo.AffectEngine/releases) page and run `install.bat` — Python packages and ONNX models are set up automatically. (.NET 8.0 Runtime and Python 3.9+ must be installed beforehand.)
+- [Releases](https://github.com/dr-yakumo/Yakumo.AffectEngine/releases) ページから ZIP を取得して `install.bat` を実行してください。Python パッケージの導入と ONNX モデルの取得は自動で行われます（.NET 8.0 Runtime と Python 3.9+ は事前にインストールしておいてください）。
 ---
 
 ## License / ライセンス
@@ -61,7 +76,7 @@ See [LICENSE](LICENSE) for details.
 コアライブラリ（`Yakumo.Affect`）は **MIT ライセンス** で提供されます。
 
 The optional Polarity Gate plugin (`Yakumo.Affect.PolarityGate.dll`) is distributed as **binary only** under the **Apache License 2.0**.  
-See [NOTICE_PolarityGate](NOTICE_PolarityGate) for details.  
+See [NOTICE_PolarityGate](Yakumo.Affect.PolarityGate/NOTICE_PolarityGate) for details.  
 オプションの Polarity Gate プラグイン（`Yakumo.Affect.PolarityGate.dll`）は **バイナリのみ配布** で、**Apache License 2.0** が適用されます。
 
 ### Third-party notices / サードパーティ表示

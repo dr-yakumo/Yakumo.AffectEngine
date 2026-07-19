@@ -621,6 +621,13 @@ namespace Yakumo.Affect
             _scoreMode = cfgScoreMode;
             _aggregate = cfgAggregate;
 
+            // raw28 + jp の組み合わせ通知（起動時に1回だけ）
+            if (ShouldUseGoEmotionsModel() && _language == "jp" && IsGoEmoRaw28Mode())
+            {
+                Console.WriteLine("[GoEmo] raw28モード起動: 14ラベルへの圧縮処理なし(GoEmotionsの28感情をそのまま出します)。翻訳は通常通り実施。");
+                Console.WriteLine("[GoEmo] raw28 mode enabled: no 14-label compression (returns raw GoEmotions 28-emotion scores). Translation still runs as usual.");
+            }
+
             // 設定ファイルから感情フィルタリング設定を読み込む
             try
             {
@@ -670,7 +677,10 @@ namespace Yakumo.Affect
                 }
             } catch {}
 
-            InitializeResources();
+            if (!ShouldUseGoEmotionsModel() && !ShouldUseRobertaModel())
+            {
+                InitializeResources();
+            }
 
             // キャリブレーションデータの読み込み(シングルトンを使用)
             _calibrationStore = Calibration.EmotionCalibrationStore.Instance;
