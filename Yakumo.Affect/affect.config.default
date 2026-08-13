@@ -275,12 +275,12 @@ PolarityGateVerbose = false
 [nli_translation]
 
 ; [EN] Translation model.
-;      opus  — light & fast   (Helsinki-NLP/opus-mt-ja-en, MIT ✅ commercial OK) <- default
+;      opus  — light & fast   (Helsinki-NLP/opus-mt-ja-en, Apache-2.0 ✅ commercial OK) <- default
 ;      nllb  — high accuracy  (facebook/nllb-200-distilled-600M,
 ;              CC-BY-NC-4.0 ⚠️ NON-COMMERCIAL ONLY)
 ;      mt5   — balanced       (google/mt5-small, Apache 2.0 ✅ commercial OK)
 ; [JP] 使用する翻訳モデル。
-;      opus  — 軽量・高速 (Helsinki-NLP/opus-mt-ja-en, MIT ✅ 商用可) ← デフォルト
+;      opus  — 軽量・高速 (Helsinki-NLP/opus-mt-ja-en, Apache-2.0 ✅ 商用可) ← デフォルト
 ;      nllb  — 高精度・文脈理解 (facebook/nllb-200-distilled-600M,
 ;              CC-BY-NC-4.0 ⚠️ 非商用のみ)
 ;      mt5   — バランス型 (google/mt5-small, Apache 2.0 ✅ 商用可)

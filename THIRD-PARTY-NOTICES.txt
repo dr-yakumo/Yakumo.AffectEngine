@@ -1,0 +1,215 @@
+================================================================================
+ Yakumo.AffectEngine - THIRD-PARTY NOTICES
+================================================================================
+
+ This file lists the third-party components that are REDISTRIBUTED as part of
+ this package, together with their license texts.
+
+ このファイルには、本パッケージに「同梱して再配布している」第三者コンポーネントと
+ そのライセンス本文を記載しています。
+
+ --------------------------------------------------------------------------
+ Scope / 適用範囲
+ --------------------------------------------------------------------------
+
+ INCLUDED here:
+   Components whose binaries ship inside this package. Redistribution
+   obligations (copyright notice + license text) apply to us, so the full
+   license texts are reproduced below.
+
+ ここに含まれるもの:
+   本パッケージにバイナリが同梱されているコンポーネント。再配布の義務
+   （著作権表示とライセンス本文の添付）が当方に発生するため、全文を収録します。
+
+ NOT included here:
+   ONNX models and Python packages. They are NOT bundled; `install.ps1`
+   downloads them from their original distributors at install time. Each is
+   governed by its own license as published by its distributor.
+   See README.md for the list.
+
+   ONNX モデルおよび Python パッケージ。これらは同梱しておらず、`install.ps1`
+   が実行時に各配布元から取得します。適用条件は各配布元の公開する
+   ライセンスに従います。一覧は README.md を参照してください。
+
+ SEPARATE files:
+   Yakumo.Affect.PolarityGate.dll (Apache License 2.0) has its own
+   LICENSE_PolarityGate and NOTICE_PolarityGate files in this package.
+
+   Yakumo.Affect.PolarityGate.dll (Apache License 2.0) は本パッケージ内の
+   LICENSE_PolarityGate / NOTICE_PolarityGate を参照してください。
+
+
+================================================================================
+ 1. ONNX Runtime
+================================================================================
+ Files in this package / 該当ファイル:
+   Microsoft.ML.OnnxRuntime.dll
+   runtimes/win-x64/native/onnxruntime.dll
+   runtimes/win-x64/native/onnxruntime.lib
+   runtimes/win-x64/native/onnxruntime_providers_shared.dll
+   runtimes/win-arm64/native/onnxruntime.dll
+   runtimes/win-arm64/native/onnxruntime.lib
+   runtimes/win-arm64/native/onnxruntime_providers_shared.dll
+
+ NuGet package : Microsoft.ML.OnnxRuntime.DirectML 1.23.0
+                 (and its dependency Microsoft.ML.OnnxRuntime.Managed 1.23.0)
+ Project       : https://github.com/microsoft/onnxruntime
+ License       : MIT License
+ License text  : https://raw.githubusercontent.com/microsoft/onnxruntime/main/LICENSE
+
+--------
+MIT License
+
+Copyright (c) Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+--------
+
+
+================================================================================
+ 2. Microsoft.ML.Tokenizers
+================================================================================
+
+ Files in this package / 該当ファイル:
+   Microsoft.ML.Tokenizers.dll
+
+ NuGet package : Microsoft.ML.Tokenizers 1.0.2
+ Project       : https://github.com/dotnet/machinelearning
+ License       : MIT License
+ License text  : https://raw.githubusercontent.com/dotnet/machinelearning/main/LICENSE
+
+--------
+The MIT License (MIT)
+
+Copyright (c) .NET Foundation and Contributors
+
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+--------
+
+
+================================================================================
+ 3. .NET Runtime Libraries
+================================================================================
+
+ Files in this package / 該当ファイル:
+   System.Numerics.Tensors.dll
+
+NuGet package : System.Numerics.Tensors 9.0.0
+
+ Project       : https://github.com/dotnet/runtime
+ License       : MIT License
+ License text  : https://raw.githubusercontent.com/dotnet/runtime/main/LICENSE.TXT
+
+--------
+The MIT License (MIT)
+
+Copyright (c) .NET Foundation and Contributors
+
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+--------
+
+
+================================================================================
+ 4. Google Protocol Buffers
+================================================================================
+
+ Files in this package / 該当ファイル:
+   Google.Protobuf.dll
+
+ NuGet package : Google.Protobuf 3.27.1
+                 (transitive dependency of Microsoft.ML.Tokenizers)
+ Project       : https://github.com/protocolbuffers/protobuf
+ License       : BSD 3-Clause License
+ License text  : https://raw.githubusercontent.com/protocolbuffers/protobuf/main/LICENSE
+
+--------
+Copyright 2008 Google Inc.  All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+    * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Code generated by the Protocol Buffer compiler is owned by the owner
+of the input file used when generating it.  This code is not
+standalone and requires a support library to be linked with it.  This
+support library is itself covered by the above license.
+--------
+
+
+================================================================================
+ End of third-party notices
+================================================================================

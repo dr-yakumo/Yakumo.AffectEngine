@@ -2,8 +2,8 @@
 
 > 🌐 **Language**: 日本語 | [English](YAKUMO_NLI_API_en.md)
 
-> **対象バージョン**: v1.1
-> **最終更新**: 2026-07-11
+> **対象バージョン**: v1.1.1
+> **最終更新**: 2026-08-14
 > **名前空間**: `Yakumo.Affect`
 > **対象読者**: ライブラリ利用者（外部開発者）
 
@@ -37,7 +37,14 @@ Yakumo Affect Engine は、日本語・英語テキストを対象とした **14
 - 日本語入力は内蔵の翻訳サービス（ローカル Python プロセス）で英語に変換してから推論
 - 28 ラベルの GoEmotions 出力を Yakumo 独自の 14 ラベルに集約
 
-セットアップ（モデル取得・Python 環境構築）は同梱の `install.ps1` / README を参照してください。
+### はじめに（入手とセットアップ）
+
+本ライブラリは [**Releases ページ**](https://github.com/dr-yakumo/Yakumo.AffectEngine/releases) から
+ZIP をダウンロードして使います。展開して `install.bat` を実行すると、ONNX モデルの取得・
+Python 環境の構築・`affect.config` の配置までが自動で行われます。
+
+- 事前に必要なもの: [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) / Python 3.9 以降
+- 詳細は同梱の [README](https://github.com/dr-yakumo/Yakumo.AffectEngine#readme) および `install.ps1` を参照してください
 
 ---
 
@@ -63,6 +70,22 @@ foreach (var kv in result.TopK)
 ```
 
 > 💡 実際に動く対話型サンプルが `Yakumo.Affect.Sample/Program.cs` にあります。
+
+> ⚠️ **実行時アセットが必要です。** 上記のコードを動かすには、[Releases](https://github.com/dr-yakumo/Yakumo.AffectEngine/releases) の ZIP に含まれる `install.bat` / `install.ps1` が用意するアセットが要ります。
+> ライブラリを参照するだけでは動きません。インストーラーを使わない場合は、以下を手動で配置してください。
+>
+> | アセット | 用途 |
+> |---|---|
+> | `affect.config` | エンジン設定。`affect.config.default` からコピーする |
+> | `libs/models/goemo-roberta-base/` | ONNX 分類モデル（`model.onnx`・トークナイザ一式） |
+> | Python 翻訳サーバー | **日本語入力に必須。** エンジンが自動起動する。Python 3.9+ と `requirements.txt` のパッケージが必要 |
+> | `Yakumo.Affect.PolarityGate.dll` | 任意。実行ファイルと同じディレクトリに置くと極性フィルタが有効になる |
+>
+> パスは実行ファイルのディレクトリ（`AppContext.BaseDirectory`）を基準に解決されます。
+
+> 📊 **スコアは固定値ではありません。** 自分のドメインに合わせた調整で変動します
+> （`affect.config` のラベル重み、`affect.dict.json` のエントリはどちらも調整される前提のものです）。
+> **順位**を主たる出力、数値は相対的な確信度として扱ってください。
 
 ---
 
@@ -362,7 +385,7 @@ Rescoring.Enabled = false    ; kNN 類似事例投票による再スコアリン
 
 | 設定値 | モデル | 特徴 | ライセンス |
 |---|---|---|---|
-| `opus`（デフォルト） | Helsinki-NLP/opus-mt-ja-en | 軽量・高速 | MIT ✅ 商用可 |
+| `opus`（デフォルト） | Helsinki-NLP/opus-mt-ja-en | 軽量・高速 | Apache-2.0 ✅ 商用可 |
 | `nllb` | facebook/nllb-200-distilled-600M | 高精度・文脈理解 | CC-BY-NC-4.0 ⚠️ **非商用のみ** |
 | `mt5` | google/mt5-small | バランス型 | Apache 2.0 ✅ 商用可 |
 

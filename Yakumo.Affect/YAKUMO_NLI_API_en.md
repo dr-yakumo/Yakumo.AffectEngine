@@ -2,8 +2,8 @@
 
 > 🌐 **Language**: [日本語](YAKUMO_NLI_API_jp.md) | English
 
-> **Target version**: v1.1
-> **Last updated**: 2026-07-11
+> **Target version**: v1.1.1
+> **Last updated**: 2026-08-14
 > **Namespace**: `Yakumo.Affect`
 > **Audience**: Library consumers (external developers)
 
@@ -37,7 +37,14 @@ Yakumo Affect Engine is a **14-label multi-label emotion analysis** library for 
 - Japanese input is translated to English by a built-in translation service (local Python process) before inference
 - The 28 GoEmotions output labels are aggregated into 14 Yakumo-specific labels
 
-For setup (model download, Python environment), see the bundled `install.ps1` and the README.
+### Getting started (download & setup)
+
+Download the ZIP from the [**Releases page**](https://github.com/dr-yakumo/Yakumo.AffectEngine/releases),
+extract it, and run `install.bat`. It downloads the ONNX models, sets up the Python
+environment, and places `affect.config` for you.
+
+- Prerequisites: [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) and Python 3.9+
+- See the bundled [README](https://github.com/dr-yakumo/Yakumo.AffectEngine#readme) and `install.ps1` for details
 
 ---
 
@@ -63,6 +70,22 @@ foreach (var kv in result.TopK)
 ```
 
 > 💡 A working interactive sample is available at `Yakumo.Affect.Sample/Program.cs`.
+
+> ⚠️ **Runtime assets are required.** The code above needs the assets set up by `install.bat` / `install.ps1`, which ship in the ZIP on the [Releases](https://github.com/dr-yakumo/Yakumo.AffectEngine/releases) page.
+> Referencing the library alone is not enough. If you are not using the installer, prepare these manually:
+>
+> | Asset | Purpose |
+> |---|---|
+> | `affect.config` | Engine configuration. Copy from `affect.config.default` |
+> | `libs/models/goemo-roberta-base/` | ONNX classification model (`model.onnx`, tokenizer files) |
+> | Python translation server | **Required for Japanese input.** Started automatically by the engine; needs Python 3.9+ and the packages listed in `requirements.txt` |
+> | `Yakumo.Affect.PolarityGate.dll` | Optional. Place it next to the executable to enable the polarity filter |
+>
+> Paths are resolved relative to the executable's directory (`AppContext.BaseDirectory`).
+
+> 📊 **Scores are not fixed values.** They shift as you tune the engine for your own domain —
+> label weights in `affect.config` and entries in `affect.dict.json` are both meant to be adjusted.
+> Treat the **ranking** as the primary output and the numbers as relative confidence.
 
 ---
 
@@ -363,7 +386,7 @@ For detailed explanations of every key, see the comments inside `affect.config.d
 
 | Value | Model | Characteristics | License |
 |---|---|---|---|
-| `opus` (default) | Helsinki-NLP/opus-mt-ja-en | Light & fast | MIT ✅ commercial OK |
+| `opus` (default) | Helsinki-NLP/opus-mt-ja-en | Light & fast | Apache-2.0 ✅ commercial OK |
 | `nllb` | facebook/nllb-200-distilled-600M | High accuracy, contextual | CC-BY-NC-4.0 ⚠️ **NON-COMMERCIAL ONLY** |
 | `mt5` | google/mt5-small | Balanced | Apache 2.0 ✅ commercial OK |
 

@@ -70,7 +70,10 @@ $GOEMO_MODEL_DIR  = Join-Path $MODELS_DIR "goemo-roberta-base"
 $MINILM_MODEL_DIR = Join-Path $MODELS_DIR "all-MiniLM-L6-v2"
 $CONFIG_SRC       = Join-Path $InstallDir "affect.config.default"
 $CONFIG_DEST      = Join-Path $InstallDir "affect.config"
-$VERSION          = "1.1"
+# リリース時は make_release.ps1 が -Version の値でこの行を書き換える。
+# ここの値はリポジトリから直接実行した場合のフォールバック。
+# 行の形式を変えると make_release.ps1 の置換が失敗して停止するので注意。
+$VERSION          = "1.1.1"
 
 # ================================================================
 # 言語選択 / Language selection
@@ -296,7 +299,7 @@ if ($Translation -ne "") {
     Write-Host (L "  翻訳モデルを選択してください:" "  Please select a translation model:") -ForegroundColor White
     Write-Host ""
     Write-Host "  [1] opus  — Helsinki-NLP/opus-mt-ja-en" -ForegroundColor White
-    Write-Host (L "       ライセンス : MIT  (商用可)" "       License    : MIT  (commercial use OK)") -ForegroundColor Green
+    Write-Host (L "       ライセンス : Apache-2.0  (商用可)" "       License    : Apache-2.0  (commercial use OK)") -ForegroundColor Green
     Write-Host (L "       特徴       : 軽量・高速 (約 300MB)  ← 推奨" "       Profile    : light & fast (approx. 300MB)  <- recommended") -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  [2] nllb  — facebook/nllb-200-distilled-600M" -ForegroundColor White
