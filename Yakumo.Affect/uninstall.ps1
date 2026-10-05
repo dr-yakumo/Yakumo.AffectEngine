@@ -4,9 +4,13 @@
     Yakumo Affect Engine — Uninstaller / アンインストーラ
 
 .DESCRIPTION
-    Deletes the model files and backs up the configuration file.
+    Cleans up what the installer downloaded and generated: the model files (optional)
+    and affect.config (backed up first). The program files, affect.dict.json and the
+    backups\ folder are left in place; delete the folder itself to remove everything.
     Python packages are NOT removed automatically (to avoid conflicts with other tools).
-    モデルファイルの削除、設定ファイルのバックアップを行います。
+    インストーラーが取得・生成したもの（モデルファイル〔任意〕と affect.config〔バックアップ後〕）を
+    片付けます。プログラム本体・affect.dict.json・backups\ フォルダは残します。
+    すべて削除するにはフォルダごと削除してください。
     Python パッケージは自動削除しません (他ツールとの競合を避けるため)。
 
 .PARAMETER Lang
@@ -45,7 +49,7 @@ if ($InstallDir -eq "") {
 
 $MODELS_DIR    = Join-Path $InstallDir "libs\models"
 $CONFIG_DEST   = Join-Path $InstallDir "affect.config"
-$CONFIG_BACKUP = Join-Path $InstallDir "affect.config.bak"
+$DICT_DEST     = Join-Path $InstallDir "affect.dict.json"
 
 # ================================================================
 # 言語選択 / Language selection
@@ -94,13 +98,69 @@ function Write-OK   { param([string]$Msg); Write-Host "  OK  $Msg" -ForegroundCo
 function Write-Warn { param([string]$Msg); Write-Host "  !!  $Msg" -ForegroundColor Yellow }
 function Write-Info { param([string]$Msg); Write-Host "      $Msg" -ForegroundColor White }
 
+# ----------------------------------------------------------------
+# 利用者ファイルのバックアップ / Backing up the user's files
+# ----------------------------------------------------------------
+# install.ps1 と同じ形式。backups\<日時>-<乱数5桁>\ に複製し、過去のバックアップは上書きしない。
+# Same scheme as install.ps1: copies go to backups\<timestamp>-<5 random digits>\,
+# so an earlier backup is never overwritten.
+$script:BackupDir = $null
+
+function Get-BackupDir {
+    if ($null -ne $script:BackupDir) {
+        return $script:BackupDir
+    }
+
+    $backupRoot = Join-Path $InstallDir "backups"
+    if (-not (Test-Path $backupRoot)) {
+        New-Item -ItemType Directory -Path $backupRoot | Out-Null
+    }
+
+    # 衝突するのは同じ秒に同じ乱数が出たときだけだが、既にあれば引き直す
+    # A clash needs the same second and the same random number; retry if it happens
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        $stamp     = Get-Date -Format "yyyyMMdd-HHmmss"
+        $suffix    = Get-Random -Minimum 10000 -Maximum 100000
+        $candidate = Join-Path $backupRoot "$stamp-$suffix"
+        if (-not (Test-Path $candidate)) {
+            New-Item -ItemType Directory -Path $candidate | Out-Null
+            $script:BackupDir = $candidate
+            return $candidate
+        }
+    }
+
+    throw (L "バックアップフォルダを作成できませんでした: $backupRoot" `
+             "Could not create a backup folder under: $backupRoot")
+}
+
+function Backup-UserFile {
+    param([string]$FilePath)
+    $backupDir = Get-BackupDir
+    $fileName  = Split-Path $FilePath -Leaf
+    $dest      = Join-Path $backupDir $fileName
+    Copy-Item $FilePath $dest -Force
+    Write-OK (L "$fileName をバックアップしました: $dest" "Backed up $fileName to: $dest")
+}
+
 # ================================================================
 # Step 1: モデルファイルの削除 / Deleting the model files
 # ================================================================
 Write-Header
+Write-Info (L "ダウンロードしたモデルと設定ファイルを片付けます。" `
+              "This cleans up the downloaded models and the configuration file.")
+Write-Info (L "プログラム本体・affect.dict.json・backups\ は削除しません（最後に案内します）。" `
+              "The program files, affect.dict.json and backups\ are not deleted (see the end).")
+
+# 完了画面で「削除したもの / 残したもの」を実際の結果から表示するための記録
+# Records what actually happened, for the summary at the end
+$modelsExisted = $false
+$modelsDeleted = $false
+$configDeleted = $false
+
 Write-Step "1" (L "モデルファイルの削除" "Deleting the model files")
 
 if (Test-Path $MODELS_DIR) {
+    $modelsExisted = $true
     # フォルダサイズを概算表示 / Show the approximate folder size
     $sizeBytes = (Get-ChildItem -Recurse -File $MODELS_DIR | Measure-Object -Property Length -Sum).Sum
     $sizeMB    = [math]::Round($sizeBytes / 1MB, 1)
@@ -110,6 +170,7 @@ if (Test-Path $MODELS_DIR) {
     $confirm = Read-Host (L "  モデルファイルを削除しますか? [y/N]" "  Delete the model files? [y/N]")
     if ($confirm -match "^[yY]$") {
         Remove-Item -Recurse -Force $MODELS_DIR
+        $modelsDeleted = $true
         Write-OK (L "モデルファイルを削除しました" "Model files deleted")
     } else {
         Write-Info (L "スキップしました" "Skipped")
@@ -125,16 +186,19 @@ if (Test-Path $MODELS_DIR) {
 Write-Step "2" (L "設定ファイルのバックアップ" "Backing up the configuration file")
 
 if (Test-Path $CONFIG_DEST) {
-    if (Test-Path $CONFIG_BACKUP) {
-        Write-Warn (L "affect.config.bak が既に存在します — 上書きします" `
-                      "affect.config.bak already exists -- it will be overwritten")
-    }
-    Copy-Item $CONFIG_DEST $CONFIG_BACKUP -Force
+    Backup-UserFile $CONFIG_DEST
     Remove-Item $CONFIG_DEST -Force
-    Write-OK (L "affect.config を affect.config.bak にバックアップして削除しました" `
-                "affect.config was backed up to affect.config.bak and removed")
+    $configDeleted = $true
+    Write-OK (L "affect.config を削除しました" "affect.config was removed")
 } else {
     Write-Info (L "affect.config が見つかりません (スキップ)" "affect.config not found (skipping)")
+}
+
+# 辞書は削除しない。利用者が育てたものなので、残したままにする
+# The dictionary is never deleted: it is the user's own work
+if (Test-Path $DICT_DEST) {
+    Write-Info (L "affect.dict.json は削除せずに残します: $DICT_DEST" `
+                  "affect.dict.json is kept, not deleted: $DICT_DEST")
 }
 
 # ================================================================
@@ -163,7 +227,47 @@ Write-Host "================================================================" -F
 Write-Host (L "  アンインストール完了" "  Uninstall complete") -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
-if (Test-Path $CONFIG_BACKUP) {
-    Write-Host (L "  設定バックアップ: $CONFIG_BACKUP" "  Config backup: $CONFIG_BACKUP") -ForegroundColor White
+
+# 実際に行った内容から「削除したもの / 残したもの」を組み立てる
+# Build the removed / kept lists from what actually happened
+$removedItems = @()
+$keptItems    = @()
+
+if ($modelsDeleted) {
+    $removedItems += (L "モデルファイル" "model files")
+} elseif ($modelsExisted) {
+    $keptItems += (L "モデルファイル" "model files")
 }
+
+if ($configDeleted) {
+    $removedItems += (L "affect.config（バックアップ済み）" "affect.config (backed up)")
+}
+
+if (Test-Path $DICT_DEST) {
+    $keptItems += "affect.dict.json"
+}
+
+if (Test-Path (Join-Path $InstallDir "backups")) {
+    $keptItems += "backups\"
+}
+
+$keptItems += (L "プログラム本体" "program files")
+
+$noneLabel   = L "なし" "nothing"
+$removedText = if ($removedItems.Count -gt 0) { $removedItems -join " / " } else { $noneLabel }
+$keptText    = $keptItems -join " / "
+
+Write-Host (L "  削除したもの : $removedText" "  Removed : $removedText") -ForegroundColor White
+Write-Host (L "  残したもの   : $keptText" "  Kept    : $keptText") -ForegroundColor White
+Write-Host (L "                 Python パッケージ / HuggingFace のキャッシュ（上記の手順で削除できます）" `
+              "            Python packages / HuggingFace cache (see the steps above to remove them)") -ForegroundColor White
+if ($null -ne $script:BackupDir) {
+    Write-Host (L "  設定バックアップ: $script:BackupDir" "  Config backup: $script:BackupDir") -ForegroundColor White
+}
+Write-Host ""
+Write-Host (L "  完全に削除するには、このフォルダごと削除してください:" `
+              "  To remove everything, delete this folder:") -ForegroundColor Cyan
+Write-Host "    $InstallDir" -ForegroundColor Cyan
+Write-Host (L "  （affect.dict.json と backups\ が必要なら、先に別の場所へ移してください）" `
+              "  (Move affect.dict.json and backups\ elsewhere first if you want to keep them)") -ForegroundColor Cyan
 Write-Host ""

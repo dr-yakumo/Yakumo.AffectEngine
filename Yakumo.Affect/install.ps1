@@ -170,6 +170,54 @@ function Set-IniValue {
     return $replaced
 }
 
+# ----------------------------------------------------------------
+# 利用者ファイルのバックアップ / Backing up the user's files
+# ----------------------------------------------------------------
+# affect.config と affect.dict.json は、利用者が自分の環境に合わせて調整したもの。
+# インストーラーが手を入れる前に、必ず backups\<日時>-<乱数5桁>\ へ複製する。
+# フォルダは1回の実行につき1つで、最初に必要になった時点で作る。
+#
+# affect.config / affect.dict.json hold the user's own tuning. Before the installer
+# touches them, they are always copied to backups\<timestamp>-<5 random digits>\.
+# One folder per run, created the first time it is needed.
+$script:BackupDir = $null
+
+function Get-BackupDir {
+    if ($null -ne $script:BackupDir) {
+        return $script:BackupDir
+    }
+
+    $backupRoot = Join-Path $InstallDir "backups"
+    if (-not (Test-Path $backupRoot)) {
+        New-Item -ItemType Directory -Path $backupRoot | Out-Null
+    }
+
+    # 衝突するのは同じ秒に同じ乱数が出たときだけだが、既にあれば引き直す
+    # A clash needs the same second and the same random number; retry if it happens
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        $stamp     = Get-Date -Format "yyyyMMdd-HHmmss"
+        $suffix    = Get-Random -Minimum 10000 -Maximum 100000
+        $candidate = Join-Path $backupRoot "$stamp-$suffix"
+        if (-not (Test-Path $candidate)) {
+            New-Item -ItemType Directory -Path $candidate | Out-Null
+            $script:BackupDir = $candidate
+            return $candidate
+        }
+    }
+
+    throw (L "バックアップフォルダを作成できませんでした: $backupRoot" `
+             "Could not create a backup folder under: $backupRoot")
+}
+
+function Backup-UserFile {
+    param([string]$FilePath)
+    $backupDir = Get-BackupDir
+    $fileName  = Split-Path $FilePath -Leaf
+    $dest      = Join-Path $backupDir $fileName
+    Copy-Item $FilePath $dest -Force
+    Write-OK (L "$fileName をバックアップしました: $dest" "Backed up $fileName to: $dest")
+}
+
 # ================================================================
 # Step 1: 前提条件チェック / Prerequisites
 # ================================================================
@@ -524,12 +572,23 @@ if (-not (Test-Path $CONFIG_SRC)) {
 }
 
 $doWriteConfig = $true
-if (Test-Path $CONFIG_DEST) {
-    $overwrite = Read-Host (L "  affect.config が既に存在します。上書きしますか? [y/N]" `
-                              "  affect.config already exists. Overwrite? [y/N]")
-    if ($overwrite -notmatch "^[yY]$") {
-        Write-Info (L "affect.config の上書きをスキップします — 翻訳モデル設定のみ更新します" `
-                      "Skipping the overwrite -- only the translation model setting will be updated")
+$configExisted = Test-Path $CONFIG_DEST
+if ($configExisted) {
+    # 保持する場合も下で Model キーを書き換えるので、どちらを選んでも先に複製する
+    # Back up first either way: the Model key below is rewritten even when keeping the file
+    Backup-UserFile $CONFIG_DEST
+    Write-Warn (L "affect.config が既に存在します（バックアップ済み）" `
+                  "affect.config already exists (backed up)")
+    Write-Info (L "Y : 今の設定をそのまま使います（翻訳モデルの指定だけ更新）" `
+                  "Y : keep your current settings (only the translation model is updated)")
+    Write-Info (L "n : v$VERSION の既定値で入れ直します（今の設定はバックアップに残ります）" `
+                  "n : replace them with the v$VERSION defaults (your settings stay in the backup)")
+    # 保持を既定にする。n と入力されたときだけ入れ直す（押し間違えても失わない側に倒す）
+    # Keeping is the default; only an explicit "n" replaces the file
+    $keepConfig = Read-Host (L "  今の設定を保持しますか? [Y/n]" "  Keep your current settings? [Y/n]")
+    if ($keepConfig -notmatch "^[nN]$") {
+        Write-Info (L "今の affect.config を保持します — 翻訳モデル設定のみ更新します" `
+                      "Keeping your affect.config -- only the translation model setting will be updated")
         $doWriteConfig = $false
     }
 }
@@ -538,6 +597,10 @@ if ($doWriteConfig) {
     Copy-Item $CONFIG_SRC $CONFIG_DEST -Force
     Write-OK (L "affect.config.default → affect.config にコピーしました" `
                 "Copied affect.config.default -> affect.config")
+    if ($configExisted) {
+        Write-Info (L "以前の設定はバックアップフォルダに残っています" `
+                      "Your previous settings are kept in the backup folder")
+    }
 }
 
 # [nli_translation] セクションの Model キーのみ更新
@@ -563,10 +626,26 @@ if (-not (Test-Path $dictSrc)) {
     Write-Warn (L "affect.dict.json.example が見つかりません — 辞書セットアップをスキップします" `
                   "affect.dict.json.example not found -- skipping the dictionary setup")
 } elseif (Test-Path $dictDest) {
-    Write-Warn (L "affect.dict.json が既に存在します — スキップします（既存の辞書を保持）" `
-                  "affect.dict.json already exists -- skipping (your existing dictionary is preserved)")
-    Write-Info (L "辞書を初期化する場合は affect.dict.json を削除してから再実行してください" `
-                  "To reset the dictionary, delete affect.dict.json and run this installer again")
+    Backup-UserFile $dictDest
+    Write-Warn (L "affect.dict.json が既に存在します（バックアップ済み）" `
+                  "affect.dict.json already exists (backed up)")
+    Write-Info (L "Y : 今の辞書をそのまま使います" `
+                  "Y : keep your current dictionary")
+    Write-Info (L "n : v$VERSION の辞書で入れ直します（今の辞書はバックアップに残ります）" `
+                  "n : replace it with the v$VERSION dictionary (yours stays in the backup)")
+    # 保持を既定にする。n と入力されたときだけ入れ直す（押し間違えても失わない側に倒す）
+    # Keeping is the default; only an explicit "n" replaces the file
+    $keepDict = Read-Host (L "  今の辞書を保持しますか? [Y/n]" "  Keep your current dictionary? [Y/n]")
+    if ($keepDict -match "^[nN]$") {
+        Copy-Item $dictSrc $dictDest -Force
+        Write-OK (L "affect.dict.json.example → affect.dict.json にコピーしました" `
+                    "Copied affect.dict.json.example -> affect.dict.json")
+        Write-Info (L "以前の辞書はバックアップフォルダに残っています" `
+                      "Your previous dictionary is kept in the backup folder")
+    } else {
+        Write-Info (L "今の affect.dict.json を保持します" `
+                      "Keeping your affect.dict.json")
+    }
 } else {
     Copy-Item $dictSrc $dictDest -Force
     Write-OK (L "affect.dict.json.example → affect.dict.json にコピーしました" `
@@ -631,13 +710,32 @@ Write-Host (L "  Yakumo Affect Engine のセットアップが完了しました
               "  Yakumo Affect Engine setup is complete") -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "       /\_/\" -ForegroundColor Magenta
-Write-Host "      ( ^.^ )   $(L 'セットアップかんりょう、にゃ！' 'All set, meow!')" -ForegroundColor Magenta
-Write-Host "       > ^ <" -ForegroundColor Magenta
+# 八雲（雲）とロゴ文字。形は ASCII だけで作る（日本語コンソールでも幅がずれないように）
+# Clouds over the Yakumo wordmark, ASCII only so the width is the same on any console
+Write-Host '          .--.                    .--.' -ForegroundColor White
+Write-Host '       .-(    )-.              .-(    )-.' -ForegroundColor White
+Write-Host '      (___.__)___)            (___.__)___)' -ForegroundColor Gray
+Write-Host ' __   __        _' -ForegroundColor Magenta
+Write-Host ' \ \ / / __ _  | |__  _  _   _ __    ___' -ForegroundColor Magenta
+Write-Host '  \ V / / _` | | / / | || | | ''  \  / _ \' -ForegroundColor Magenta
+Write-Host '   |_|  \__,_| |_\_\  \_,_| |_|_|_| \___/' -ForegroundColor Magenta
+Write-Host ""
+# 英語 UI では「八雲」を出さない（英語版 Windows のコンソールでは漢字が表示できないことがあるため）
+# The kanji is omitted in the English UI: an English console font may not have it
+Write-Host "   " -NoNewline
+if ($UiLang -ne "en") {
+    Write-Host "八雲 " -NoNewline -ForegroundColor Cyan
+}
+Write-Host "affect engine " -NoNewline -ForegroundColor White
+Write-Host "v$VERSION" -NoNewline -ForegroundColor DarkMagenta
+Write-Host "  --  ready" -ForegroundColor White
 Write-Host ""
 Write-Host (L "  翻訳モデル    : $selectedModel" "  Translation model : $selectedModel") -ForegroundColor White
 Write-Host (L "  設定ファイル  : $CONFIG_DEST" "  Config file       : $CONFIG_DEST") -ForegroundColor White
 Write-Host (L "  モデルフォルダ: $MODELS_DIR" "  Models folder     : $MODELS_DIR") -ForegroundColor White
+if ($null -ne $script:BackupDir) {
+    Write-Host (L "  バックアップ  : $script:BackupDir" "  Backup folder     : $script:BackupDir") -ForegroundColor White
+}
 Write-Host ""
 Write-Host (L "  次のステップ:" "  Next steps:") -ForegroundColor Cyan
 Write-Host (L "   - サンプルコードを実行して動作確認してください" `
