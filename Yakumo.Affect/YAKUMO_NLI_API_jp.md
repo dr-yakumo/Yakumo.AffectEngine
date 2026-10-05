@@ -2,8 +2,8 @@
 
 > 🌐 **Language**: 日本語 | [English](YAKUMO_NLI_API_en.md)
 
-> **対象バージョン**: v1.1.1
-> **最終更新**: 2026-08-14
+> **対象バージョン**: v1.2
+> **最終更新**: 2026-10-05
 > **名前空間**: `Yakumo.Affect`
 > **対象読者**: ライブラリ利用者（外部開発者）
 
@@ -23,6 +23,7 @@
 7. [TranslationService — 翻訳辞書カスタマイズ](#7-translationservice--翻訳辞書カスタマイズ)
 8. [設定 (affect.config)](#8-設定-affectconfig)
 9. [拡張ポイント: IEmotionFilter](#9-拡張ポイント-iemotionfilter)
+    - [9.5 拡張ポイント: Classified イベント](#95-拡張ポイント-classified-イベント)
 10. [レガシー / 非推奨 API](#10-レガシー--非推奨-api)
 11. [ラベルリファレンス](#11-ラベルリファレンス)
 12. [よくある使用パターン](#12-よくある使用パターン)
@@ -58,16 +59,24 @@ using var engine = new AffectCore(language: "jp", debugMode: false);
 
 // 感情分析（設定ファイルの Model に応じたエンジンを自動選択）
 var result = await engine.AnalyzeTextWithAutoModelAsync(
-    "やった！欲しかったグラボが激安で買えた！",
+    "欲しかったグラボが激安で買えて本当に嬉しい！",
     SpeakerRole.User);
 
 Console.WriteLine(result.TopEmotion);   // "喜び"
-Console.WriteLine(result.TopScore);     // 0.912 など
-Console.WriteLine(result.IsSurprised);  // true / false
+Console.WriteLine(result.TopScore);     // 0.809
+Console.WriteLine(result.IsSurprised);  // false
 
 foreach (var kv in result.TopK)
     Console.WriteLine($"{kv.Key} = {kv.Value:F3}");
+    // 喜び = 0.809
+    // 期待 = 0.041
+    // 欲望 = 0.034
 ```
+
+> 📊 **スコアは既定構成での実測値であり、固定値ではありません。**
+> `affect.config` のラベル重みや `affect.dict.json` のエントリを調整すると変動します。
+> ラベル重みは乗数なので、**スコアは 1.0 を超えることがあります**。確率ではありません。
+> **順位**を主たる出力、数値は相対的な確信度として扱ってください。
 
 > 💡 実際に動く対話型サンプルが `Yakumo.Affect.Sample/Program.cs` にあります。
 
@@ -329,6 +338,36 @@ ts.LoadDictionaryFromJson("affect.dict.json");
 }
 ```
 
+> ⚠️ **同梱の辞書は既定モデル `opus` 専用です。**
+> エントリは `Helsinki-NLP/opus-mt-ja-en` が**実際に出す誤訳**に対して作られています。
+>
+> ```
+> 鳥肌が立つ  →  opus は "bird skin" と直訳する  →  corrections で goosebumps に補正
+> ```
+>
+> **`[nli_translation] Model` を変更すると、同梱辞書はほとんど機能しなくなります。**
+>
+> なお、このエントリ群は **`opus-mt-ja-en` の特定リビジョンが出す誤訳**に合わせて作られています。
+> インストーラーはそのリビジョンを固定するため、上流が更新されても補正は空振りしません。
+> **モデルを自前で差し替える場合は、補正辞書も作り直しが必要**とお考えください。
+> 別のモデルは別の壊れ方をするため、`bird skin` のような文字列がそもそも現れません。
+> モデルを変える場合は、**そのモデルの出力を見て辞書を作り直してください。**
+
+**`properNouns` の置換先は英語でなくても構いません。**
+翻訳が壊れる言い回しを、同義の平易な日本語へ書き換える用途にも使えます。
+
+```json
+"properNouns": {
+  "株式会社サンプル": "Sample Corporation",
+  "肩を落とす": "がっかりする"
+}
+```
+
+日本語のまま渡すと翻訳側が再翻訳しないため壊れません
+（英語を混ぜると再翻訳されて壊れることがあります）。
+`text.Replace` による部分一致なので、**活用形ごとに登録が必要**です
+（`肩を落とす` は `肩を落とした` に一致しません）。
+
 ### 7.3 翻訳 API（直接利用する場合）
 
 ```csharp
@@ -387,7 +426,12 @@ Rescoring.Enabled = false    ; kNN 類似事例投票による再スコアリン
 |---|---|---|---|
 | `opus`（デフォルト） | Helsinki-NLP/opus-mt-ja-en | 軽量・高速 | Apache-2.0 ✅ 商用可 |
 | `nllb` | facebook/nllb-200-distilled-600M | 高精度・文脈理解 | CC-BY-NC-4.0 ⚠️ **非商用のみ** |
-| `mt5` | google/mt5-small | バランス型 | Apache 2.0 ✅ 商用可 |
+| `mt5` | google/mt5-small | ⚠️ **実験的・動作未保証** | Apache 2.0 |
+
+> ⚠️ **`mt5` は現状まともな翻訳を出力しません。**
+> `google/mt5-small` は穴埋めの事前学習しか行われておらず、翻訳用に調整されていないため、
+> 入力に関わらず内部トークン（`<extra_id_0>`）だけを返します（2026-09-01 実測）。
+> **将来の差し替え用に経路のみ残してあります。`opus` を使用してください。**
 
 ### 8.3 設定値へのプログラムアクセス
 
@@ -483,6 +527,73 @@ public interface IEmotionFilter
 - 返却件数は分析 API の引数 `k` で指定します（設定キーではありません）
 
 独自のフィルタリング戦略が必要な場合は `IEmotionFilter` を実装してください（`DefaultTopKFilter` が参照実装です）。
+
+---
+
+## 9.5 拡張ポイント: Classified イベント
+
+分析が1件完了するたびに発火します。**ハンドラを登録しなければ何も起きません。**
+
+```csharp
+public event Action<ClassificationResult>? Classified;
+```
+
+主な用途は、**翻訳で感情が壊れた入力を見つけること**です。
+日本語入力の場合、`ClassificationResult` には原文と英訳の両方が入っています。
+
+| プロパティ | 日本語入力時の中身 |
+|---|---|
+| `OriginalText` | 入力された日本語の原文 |
+| `Text` | **翻訳後の英文**（分類器が実際に見たもの) |
+| `Scores` / `TopK` | 14ラベルのスコア |
+
+日本語は翻訳を経由して分類されるため、**慣用句が直訳されると感情が丸ごと失われます**。
+実際に観測された例:
+
+```
+腹の虫が治まらない → "the insect in my stomach"
+鳥肌が立つ         → "a bird's skin"
+肩を落とす         → "I lost my shoulders"
+```
+
+しかし通常の運用では英訳を見ないため、**「なぜか neutral になった」としか分かりません**。
+このイベントで英訳を拾っておけば、あとから辞書（`affect.dict.json`）に反映できます。
+
+```csharp
+using var core = AffectCore.Create();
+
+core.Classified += result =>
+{
+    if (result.Language != "jp")
+        return;
+
+    // 英訳に日本語が残っている＝翻訳の失敗
+    bool translationFailed = result.Text.Any(c => c >= 0x3040 && c <= 0x9FFF);
+
+    if (translationFailed)
+    {
+        File.AppendAllText("candidates.jsonl",
+            JsonSerializer.Serialize(new
+            {
+                ja = result.OriginalText,
+                en = result.Text,
+                top1 = result.TopEmotion,
+            }) + Environment.NewLine);
+    }
+};
+```
+
+> **⚠️ プライバシー**
+> これは利用者の入力文を扱う機能です。**ライブラリ自身は何も記録しません。**
+> 記録するかどうか、どこに書くか、いつ消すかは、**すべて利用側の責任**です。
+> 入力文が個人情報を含みうることに留意してください。
+
+**動作上の注意**:
+
+- 発火は**同期的**です。重い処理を書くと分析全体が遅くなります
+- ハンドラ内で例外が出ても**分析は継続します**（例外は握り潰されます）
+- バッチ分析（`AnalyzeTextsWithAutoModelAsync`）では**1件ごとに発火**します
+- ハンドラが登録されていなければ、分析への負荷はほぼありません
 
 ---
 

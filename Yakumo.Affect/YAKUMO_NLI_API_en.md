@@ -2,8 +2,8 @@
 
 > 🌐 **Language**: [日本語](YAKUMO_NLI_API_jp.md) | English
 
-> **Target version**: v1.1.1
-> **Last updated**: 2026-08-14
+> **Target version**: v1.2
+> **Last updated**: 2026-10-05
 > **Namespace**: `Yakumo.Affect`
 > **Audience**: Library consumers (external developers)
 
@@ -23,6 +23,7 @@ Internal implementation and legacy inference paths (e.g. classes deprecated via 
 7. [TranslationService — Translation Dictionary Customization](#7-translationservice--translation-dictionary-customization)
 8. [Configuration (affect.config)](#8-configuration-affectconfig)
 9. [Extension Point: IEmotionFilter](#9-extension-point-iemotionfilter)
+    - [9.5 Extension Point: the Classified event](#95-extension-point-the-classified-event)
 10. [Legacy / Deprecated APIs](#10-legacy--deprecated-apis)
 11. [Label Reference](#11-label-reference)
 12. [Common Usage Patterns](#12-common-usage-patterns)
@@ -58,16 +59,25 @@ using var engine = new AffectCore(language: "jp", debugMode: false);
 
 // Analyze — the engine is selected automatically based on the Model config key
 var result = await engine.AnalyzeTextWithAutoModelAsync(
-    "やった！欲しかったグラボが激安で買えた！",
+    "欲しかったグラボが激安で買えて本当に嬉しい！",
     SpeakerRole.User);
 
 Console.WriteLine(result.TopEmotion);   // "喜び" (joy)
-Console.WriteLine(result.TopScore);     // e.g. 0.912
-Console.WriteLine(result.IsSurprised);  // true / false
+Console.WriteLine(result.TopScore);     // 0.809
+Console.WriteLine(result.IsSurprised);  // false
 
 foreach (var kv in result.TopK)
     Console.WriteLine($"{kv.Key} = {kv.Value:F3}");
+    // 喜び = 0.809   (joy)
+    // 期待 = 0.041   (anticipation)
+    // 欲望 = 0.034   (desire)
 ```
+
+> 📊 **These scores are measured with the default setup and are not fixed values.**
+> They shift as you adjust label weights in `affect.config` or entries in
+> `affect.dict.json`. Because label weights are multipliers, **a score can exceed 1.0** —
+> it is not a probability. Treat the **ranking** as the primary output and the numbers
+> as relative confidence.
 
 > 💡 A working interactive sample is available at `Yakumo.Affect.Sample/Program.cs`.
 
@@ -330,6 +340,37 @@ Copy `affect.dict.json.example` and edit it:
 }
 ```
 
+> ⚠️ **The bundled dictionary is specific to the default `opus` model.**
+> Its entries target the mistranslations that `Helsinki-NLP/opus-mt-ja-en` actually produces.
+>
+> ```
+> 鳥肌が立つ  →  opus renders it literally as "bird skin"  →  corrections maps it to goosebumps
+> ```
+>
+> **Changing `[nli_translation] Model` largely disables the bundled dictionary.**
+>
+> These entries are tuned to the mistranslations produced by **a specific revision** of
+> `opus-mt-ja-en`. The installer pins that revision, so upstream updates will not silently
+> make the corrections miss. **If you swap the model yourself, expect to rebuild the
+> corrections dictionary as well.**
+> A different model fails differently, so strings like `bird skin` never appear in the first
+> place. If you switch models, **rebuild the dictionary against that model's output.**
+
+**Replacement values in `properNouns` do not have to be English.**
+You can also use it to rewrite a phrase that breaks translation into plainer Japanese with the
+same meaning:
+
+```json
+"properNouns": {
+  "株式会社サンプル": "Sample Corporation",
+  "肩を落とす": "がっかりする"
+}
+```
+
+Staying in Japanese avoids the re-translation that can corrupt injected English. Matching is
+substring-based (`text.Replace`), so **each inflected form needs its own entry** —
+`肩を落とす` does not match `肩を落とした`.
+
 ### 7.3 Translation API (for direct use)
 
 ```csharp
@@ -388,7 +429,13 @@ For detailed explanations of every key, see the comments inside `affect.config.d
 |---|---|---|---|
 | `opus` (default) | Helsinki-NLP/opus-mt-ja-en | Light & fast | Apache-2.0 ✅ commercial OK |
 | `nllb` | facebook/nllb-200-distilled-600M | High accuracy, contextual | CC-BY-NC-4.0 ⚠️ **NON-COMMERCIAL ONLY** |
-| `mt5` | google/mt5-small | Balanced | Apache 2.0 ✅ commercial OK |
+| `mt5` | google/mt5-small | ⚠️ **Experimental / unsupported** | Apache 2.0 |
+
+> ⚠️ **`mt5` currently produces no usable translation.**
+> `google/mt5-small` is pretrained on span corruption only and was never fine-tuned for
+> translation, so it returns just its internal sentinel token (`<extra_id_0>`) regardless of
+> the input (measured 2026-09-01).
+> **The path is kept only for a future replacement model. Use `opus`.**
 
 ### 8.3 Programmatic Access to Config Values
 
@@ -484,6 +531,74 @@ All filter control lives in the `[nli_emotion]` section (there is no dedicated P
 - The number of returned entries is the analysis API argument `k` (not a config key)
 
 To implement your own filtering strategy, implement `IEmotionFilter` (`DefaultTopKFilter` is the reference implementation).
+
+---
+
+## 9.5 Extension Point: the Classified event
+
+Raised once per completed analysis. **Nothing happens unless you subscribe.**
+
+```csharp
+public event Action<ClassificationResult>? Classified;
+```
+
+Its main use is finding inputs whose emotion was destroyed by translation.
+For Japanese input the `ClassificationResult` carries both the source and the translation.
+
+| Property | Contents for Japanese input |
+|---|---|
+| `OriginalText` | The original Japanese text |
+| `Text` | **The translated English** (what the classifier actually saw) |
+| `Scores` / `TopK` | Scores across the 14 labels |
+
+Japanese is classified via translation, so **a literally translated idiom loses its emotion
+entirely**. Observed examples:
+
+```
+腹の虫が治まらない → "the insect in my stomach"
+鳥肌が立つ         → "a bird's skin"
+肩を落とす         → "I lost my shoulders"
+```
+
+In normal operation the English is never seen, so all you notice is that the result came back
+neutral for no apparent reason. Capturing the translation here lets you feed the findings back
+into `affect.dict.json`.
+
+```csharp
+using var core = AffectCore.Create();
+
+core.Classified += result =>
+{
+    if (result.Language != "jp")
+        return;
+
+    // Japanese left in the English output means the translation failed
+    bool translationFailed = result.Text.Any(c => c >= 0x3040 && c <= 0x9FFF);
+
+    if (translationFailed)
+    {
+        File.AppendAllText("candidates.jsonl",
+            JsonSerializer.Serialize(new
+            {
+                ja = result.OriginalText,
+                en = result.Text,
+                top1 = result.TopEmotion,
+            }) + Environment.NewLine);
+    }
+};
+```
+
+> **⚠️ Privacy**
+> This event exposes user input. **The library itself records nothing.**
+> Whether to record it, where to write it, and when to delete it are entirely the
+> caller's responsibility. Bear in mind that input text may contain personal data.
+
+**Behaviour notes**:
+
+- The event is raised **synchronously**; heavy work in the handler slows down analysis
+- An exception thrown by a handler **does not stop the analysis** (it is swallowed)
+- Batch analysis (`AnalyzeTextsWithAutoModelAsync`) raises it **once per item**
+- With no handlers attached, the overhead is negligible
 
 ---
 

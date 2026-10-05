@@ -27,6 +27,9 @@ namespace Yakumo.Affect
             if (_disposed) 
                 throw new ObjectDisposedException(nameof(AffectCore));
 
+            // Classified イベントを1箇所で発火するため、各経路は変数へ受けて最後に返す。
+            ClassificationResult result;
+
             // ★ Phase B: GoEmotions 直接分類パス
             if (ShouldUseGoEmotionsModel())
             {
@@ -36,16 +39,15 @@ namespace Yakumo.Affect
                     ? "実行エンジン: GoEmo_Core (直接分類・raw28出力)"
                     : "実行エンジン: GoEmo_Core (直接分類・28→14マッピング)");
                 DebugWriteLine("================");
-                return await ClassifyByGoEmotionsAsync(text, role, k, threshold, properNouns);
+                result = await ClassifyByGoEmotionsAsync(text, role, k, threshold, properNouns);
             }
-
-            if (ShouldUseRobertaModel())
+            else if (ShouldUseRobertaModel())
             {
                 DebugWriteLine("=== モデル選択 ===");
                 DebugWriteLine("選択されたモデル: RoBERTa-large-MNLI");
                 DebugWriteLine("実行エンジン: NLP_Core (高精度NLI用)");
                 DebugWriteLine("================");
-                return await ClassifyByNlpAsync(text, role, k, threshold, properNouns);
+                result = await ClassifyByNlpAsync(text, role, k, threshold, properNouns);
             }
             else
             {
@@ -55,8 +57,11 @@ namespace Yakumo.Affect
                 DebugWriteLine("実行エンジン: NLI_Core (BERT系)");
                 DebugWriteLine($"モデルタイプ: {modelConfig.ModelType}");
                 DebugWriteLine("================");
-                return await ClassifyByNliAsync(text, _tokenizer!, _session!, role, k, threshold);
+                result = await ClassifyByNliAsync(text, _tokenizer!, _session!, role, k, threshold);
             }
+
+            RaiseClassified(result);
+            return result;
         }
 
         // AnalyzeTextsAsync メソッドのRoBERTa/GoEmotions対応版
@@ -112,6 +117,12 @@ namespace Yakumo.Affect
                 results.Results.AddRange(analysisResults);
                 results.ModelUsed = modelConfig.Name;
             }
+
+            // 全分岐が results.Results に集約されるので、発火はここ1箇所でよい。
+            // ※ BERT系の経路は AnalyzeTextAsync 経由だが、そちらはルーターを通らないため
+            //    ここで発火しても二重にはならない。
+            foreach (var result in results.Results)
+                RaiseClassified(result);
 
             stopwatch.Stop();
             results.ProcessingTime = stopwatch.Elapsed;

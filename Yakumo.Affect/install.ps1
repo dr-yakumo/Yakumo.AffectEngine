@@ -68,12 +68,20 @@ if ($InstallDir -eq "") {
 $MODELS_DIR       = Join-Path $InstallDir "libs\models"
 $GOEMO_MODEL_DIR  = Join-Path $MODELS_DIR "goemo-roberta-base"
 $MINILM_MODEL_DIR = Join-Path $MODELS_DIR "all-MiniLM-L6-v2"
+
+# 検証済みモデルリビジョン / Verified model revisions
+#
+# 公表スコアを測定したときの HuggingFace のコミット。上流で main が更新されても、
+# 測定時と同じ重みがインストールされる。
+# 値を変えるとモデルの重みが変わり、スコアも公表値と一致しなくなる。
+# 翻訳モデル側の固定値は TranslationService.cs の VerifiedRevisions にある。
+$GOEMO_REVISION   = "58b6c5b44a7a12093f782442969019c7e2982299"
 $CONFIG_SRC       = Join-Path $InstallDir "affect.config.default"
 $CONFIG_DEST      = Join-Path $InstallDir "affect.config"
 # リリース時は make_release.ps1 が -Version の値でこの行を書き換える。
 # ここの値はリポジトリから直接実行した場合のフォールバック。
 # 行の形式を変えると make_release.ps1 の置換が失敗して停止するので注意。
-$VERSION          = "1.1.1"
+$VERSION          = "1.2"
 
 # ================================================================
 # 言語選択 / Language selection
@@ -306,9 +314,13 @@ if ($Translation -ne "") {
     Write-Host (L "       ライセンス : CC-BY-NC-4.0  (非商用のみ)" "       License    : CC-BY-NC-4.0  (NON-COMMERCIAL only)") -ForegroundColor Yellow
     Write-Host (L "       特徴       : 高精度 (約 1.2GB)" "       Profile    : high accuracy (approx. 1.2GB)") -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "  [3] mt5   — google/mt5-small" -ForegroundColor White
-    Write-Host (L "       ライセンス : Apache 2.0  (商用可)" "       License    : Apache 2.0  (commercial use OK)") -ForegroundColor Green
-    Write-Host (L "       特徴       : バランス型" "       Profile    : balanced") -ForegroundColor DarkGray
+    Write-Host "  [3] mt5   — google/mt5-small" -ForegroundColor DarkGray
+    Write-Host (L "       ライセンス : Apache 2.0  (商用可)" "       License    : Apache 2.0  (commercial use OK)") -ForegroundColor DarkGray
+    Write-Host (L "       特徴       : 実験的・動作未保証" "       Profile    : EXPERIMENTAL / UNSUPPORTED") -ForegroundColor Yellow
+    Write-Host (L "                    翻訳用に調整されていないため、現状まともな翻訳を出力しません" `
+                  "                    Not fine-tuned for translation; produces no usable output.") -ForegroundColor Yellow
+    Write-Host (L "                    将来の差し替え用に経路のみ残しています。opus を選んでください" `
+                  "                    The path is kept for future replacement. Please choose opus.") -ForegroundColor Yellow
     Write-Host ""
     Write-Host (L "  !! nllb を商用利用する場合はライセンスをご確認ください" `
                   "  !! Check the license before using nllb commercially") -ForegroundColor Yellow
@@ -340,14 +352,19 @@ if (Test-Path $reqFile) {
     & $pythonCmd -m pip install -r $reqFile
 } else {
     Write-Info (L "pip install (翻訳サーバー用パッケージ)..." "pip install (translation-server packages)...")
-    & $pythonCmd -m pip install flask transformers torch sentencepiece protobuf
+    # sacremoses は必須。Marian トークナイザーの正規化に使われるため、
+    # 欠けると翻訳結果が変わり、公表スコアと違う挙動になる。
+    # requirements.txt が無いときのフォールバックなので、内容を一致させておくこと。
+    # sacremoses is required: the Marian tokenizer uses it for normalization,
+    # and translation output differs without it. Keep this list in sync with requirements.txt.
+    & $pythonCmd -m pip install flask transformers torch sentencepiece protobuf sacremoses
     if ($LASTEXITCODE -ne 0) {
         Write-Fail (L "pip install 失敗 (基本パッケージ)" "pip install failed (base packages)")
         exit 1
     }
 
     Write-Info (L "pip install (ONNX エクスポート用パッケージ)..." "pip install (ONNX export packages)...")
-    & $pythonCmd -m pip install "optimum[onnxruntime]" onnx onnxconverter-common
+    & $pythonCmd -m pip install "optimum[onnxruntime]" onnx
 }
 
 if ($LASTEXITCODE -ne 0) {
@@ -374,10 +391,38 @@ if (Test-Path $goemoOnnx) {
     Write-Info (L "(初回は数分かかります。ダウンロードサイズ: 約 500MB)" `
                   "(The first run takes a few minutes. Download size: approx. 500MB)")
 
+    # ── 取得と変換を分ける（リビジョンを固定するため）──
+    #
+    # optimum の exporter にはリビジョンを指定する手段が無い。
+    #   --revision                          → 存在しない引数のためエラーになる
+    #   --model-kwargs '{"revision":...}'   → 受け付けるが無視される
+    # （詳細は scripts\fetch_goemo_model.py の冒頭コメント）
+    #
+    # そこで snapshot_download でリビジョンを固定して先に取得し、
+    # そのローカルパスを exporter に渡す。
+    # 上流で main が更新されても、公表スコアを測定したときと同じ重みが入る。
+    #
+    # Fetch first with the revision pinned, then export from that local path.
+    # The optimum exporter has no way to pin a revision.
+    $fetchScript = Join-Path $InstallDir "scripts\fetch_goemo_model.py"
+    if (-not (Test-Path $fetchScript)) {
+        Write-Fail (L "取得スクリプトが見つかりません: $fetchScript" `
+                      "Fetch script not found: $fetchScript")
+        exit 1
+    }
+
+    $modelPath = & $pythonCmd $fetchScript $GOEMO_REVISION | Select-Object -Last 1
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($modelPath)) {
+        Write-Fail (L "モデルの取得に失敗しました (リビジョン: $GOEMO_REVISION)" `
+                      "Failed to fetch the model (revision: $GOEMO_REVISION)")
+        exit 1
+    }
+    Write-OK (L "リビジョン固定で取得しました" "Fetched with the revision pinned")
+
     # optimum-cli は PATH 依存のため、python -m で直接起動する
     # optimum-cli depends on PATH, so invoke it directly via python -m
     & $pythonCmd -m optimum.exporters.onnx `
-        --model SamLowe/roberta-base-go_emotions `
+        --model "$modelPath" `
         --task text-classification `
         --framework pt `
         "$GOEMO_MODEL_DIR"
@@ -401,9 +446,13 @@ if (Test-Path $goemoOnnx) {
 # --gpu オプション: fp16 変換 / -Gpu option: fp16 conversion
 if ($Gpu) {
     Write-Info (L "--Gpu オプション: fp16 モデルを生成中..." "-Gpu option: generating the fp16 model...")
-    $fp16Script = Join-Path $GOEMO_MODEL_DIR "export_goemo_fp16.py"
+    # ZIP では scripts\ に入る。従来はモデルディレクトリ直下だったので両方を見る。
+    $fp16Script = Join-Path $InstallDir "scripts\export_goemo_fp16.py"
+    if (-not (Test-Path $fp16Script)) {
+        $fp16Script = Join-Path $GOEMO_MODEL_DIR "export_goemo_fp16.py"
+    }
     if (Test-Path $fp16Script) {
-        & $pythonCmd $fp16Script
+        & $pythonCmd $fp16Script --model-dir $GOEMO_MODEL_DIR
         if ($LASTEXITCODE -ne 0) {
             Write-Warn (L "fp16 変換に失敗しました — fp32 で続行します" "fp16 conversion failed -- continuing with fp32")
         } else {

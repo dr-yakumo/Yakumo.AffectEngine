@@ -5,6 +5,7 @@ using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,6 +23,39 @@ namespace Yakumo.Affect
     /// </remarks>
     public class TranslationService : IDisposable
     {
+        // ================================================================
+        // 検証済みのモデルリビジョンと transformers のバージョン
+        // ================================================================
+        //
+        // 翻訳モデルの重みは、公表スコアを測定したときのリビジョンを指定して
+        // ダウンロードする（VerifiedRevisions）。HuggingFace 側で main が
+        // 更新されても、測定時と同じ重みが使われる。
+        //
+        // 一方、transformers などの Python ライブラリには上限を設けていない
+        // （requirements.txt）。他のツールと同じ Python 環境に入れたとき、
+        // そちらが必要とする新しい版の導入を妨げないため。
+        // その代わり、検証済みと異なる版で翻訳サーバーを起動すると告知を出す
+        // （VerifiedTransformersVersion）。翻訳結果がおかしいときは、
+        // まず検証済みの版で試すと原因を切り分けられる。
+
+        /// <summary>
+        /// 動作を検証した transformers のバージョン。
+        /// これと異なる版で翻訳サーバーを起動すると告知を出す（起動は止めない）。
+        /// 測り直したら、ここも実測値に更新すること。
+        /// </summary>
+        private const string VerifiedTransformersVersion = "4.53.3";
+
+        /// <summary>
+        /// 翻訳モデルの検証済みリビジョン（HuggingFace のコミットハッシュ）。
+        /// キーに載っていないモデルはリビジョンを指定しない（main を使う）。
+        /// 実際に測定したモデルだけを載せる。
+        /// </summary>
+        private static readonly Dictionary<string, string> VerifiedRevisions = new()
+        {
+            // v1.2 の公表値はこのリビジョンで測定した
+            ["Helsinki-NLP/opus-mt-ja-en"] = "0770961a39ba6bd66305b149c3f4110bcafca2e6",
+        };
+
         // 翻訳モデル設定
         private static readonly Dictionary<string, TranslationModelConfig> TranslationModels = new()
         {
@@ -323,8 +357,11 @@ namespace Yakumo.Affect
                 await Task.WhenAny(_warmupTcs.Task, Task.Delay(Timeout.Infinite, gateCts.Token));
             }
 
+            // 顔文字・絵文字の除去（固有名詞置換より前に行う）
+            string cleaned = StripDecorations(japaneseText);
+
             // 固有名詞置換（翻訳精度のための前処理）
-            string preprocessed = ApplyProperNounMap(japaneseText, properNouns);
+            string preprocessed = ApplyProperNounMap(cleaned, properNouns);
 
             // サーバーが(メモリ上限超過による自己終了等で)停止している場合は自動的に再起動する
             await EnsureServerAliveAsync();
@@ -398,6 +435,76 @@ namespace Yakumo.Affect
 
         // ── 内部処理 ─────────────────────────────────────────────────────────
 
+        // ── 顔文字・絵文字の除去 ────────────────────────────────────────
+        //
+        // OPUS-MT は字幕コーパス由来のため、訳しにくい入力に遭遇すると
+        // "(Laughter)" "(Applause)" という効果音表記を返す癖がある。
+        // 顔文字が混ざると本文まで巻き込んで消えることがある（実測）:
+        //
+        //   お、大丈夫になりましたか( 'Θ')          -> "(Laughter) (Applause)"
+        //   雪山エリアの…トンネルがあるので…( 'Θ')  -> "(Laughter) (Applause)"
+        //
+        // どちらも 42文字の本文が消えたうえ、感情が「喜び 0.78」と誤検出された。
+        // 顔文字を落とすと本文が復元される:
+        //
+        //   お、大丈夫になりましたか -> "Hey, guys. You all right?"
+        //
+        // !!! 顔文字自体は感情を持つ（(つд｀) は泣き顔）。ここでは落としているが、
+        //    将来は「顔文字 -> 平易な日本語」への置換のほうが情報を保てる
+        //    （翻訳前 JP→JP 置換と同じ考え方）。
+
+        /// <summary>顔文字らしき括弧表現。中身が記号中心のものだけを対象にする。</summary>
+        private static readonly Regex BracketFace =
+            new(@"[（(][^（()）]{0,12}[)）]", RegexOptions.Compiled);
+
+        /// <summary>顔文字の構成要素。普通の括弧書き（注釈など）と区別するために使う。</summary>
+        private static readonly Regex FaceParts =
+            new(@"[Θωσ・ﾟ∀´｀＾\^;；:：\*＊/／\\|｜~〜\-—_＿ㅿ꒳˘><＞＜OＯдつ3]",
+                RegexOptions.Compiled);
+
+        /// <summary>
+        /// 絵文字。C# の string は UTF-16 なので、絵文字はサロゲートペアで表される。
+        /// \uD83C-\uDBFF が上位、\uDC00-\uDFFF が下位。ペアで1文字として消す。
+        /// 併せて BMP 内の記号領域（☀-➿）も対象にする。
+        /// </summary>
+        private static readonly Regex EmojiChars =
+            new(@"[\uD800-\uDBFF][\uDC00-\uDFFF]|[☀-➿⬀-⯿]",
+                RegexOptions.Compiled);
+
+        /// <summary>連続する空白。除去後の整形に使う。</summary>
+        private static readonly Regex ExtraSpaces =
+            new(@"\s{2,}", RegexOptions.Compiled);
+
+        /// <summary>
+        /// 翻訳を壊す装飾（顔文字・絵文字）を落とします。
+        /// 除去した結果が空になる場合は、元のテキストをそのまま返します
+        /// （顔文字だけの発言を消してしまわないため）。
+        /// </summary>
+        private string StripDecorations(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text;
+
+            string result = BracketFace.Replace(text, match =>
+            {
+                // 括弧の中身が記号中心なら顔文字とみなす。
+                // 「（※補足）」のような普通の括弧書きは残す。
+                string inner = match.Value.Substring(1, match.Value.Length - 2);
+                return inner.Length > 0 && FaceParts.IsMatch(inner) ? "" : match.Value;
+            });
+
+            result = EmojiChars.Replace(result, "");
+            result = ExtraSpaces.Replace(result, " ").Trim();
+
+            if (result.Length == 0)
+                return text;
+
+            if (result != text)
+                Console.WriteLine($"[Dict] 装飾を除去: {text} -> {result}");
+
+            return result;
+        }
+
         private string ApplyProperNounMap(string text, string[]? properNouns = null)
         {
             // 登録済み固有名詞マップを適用（読み取りロック）
@@ -406,6 +513,11 @@ namespace Yakumo.Affect
             try { snapshot = new Dictionary<string, string>(_properMap); }
             finally { _dictLock.ExitReadLock(); }
 
+            // 注意: この辞書の value は英語とは限らない。日本語→日本語の言い換えにも使っている
+            //       （MT が壊す言い回しの回避。例: 「愛おしくてたまらない」→「とても愛おしい」。
+            //        そのまま訳すと "I can't wait" になり感情が別物になる）。
+            //       プレースホルダ方式・マスク方式へ変更すると、日本語のまま復元されて静かに壊れる。
+            //       変更する場合は dev の affection F1 で回帰を確認すること（実測 0.522 / 壊れると 0.455）。
             foreach (var kv in snapshot)
                 text = text.Replace(kv.Key, kv.Value, StringComparison.Ordinal);
 
@@ -677,6 +789,22 @@ from flask import Flask, request, jsonify
 os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
+# ── transformers のバージョン告知 ──
+# requirements.txt では上限を課さない方針（利用者の環境を巻き添えに下げないため）。
+# 縛らない代わりに、検証済みでない版なら起動時に知らせて、
+# 翻訳がおかしいときに利用者が自分で切り分けられるようにする。
+# ここで止めたり落としたりはしない。動くかもしれないものを禁止しないため。
+_VERIFIED_TRANSFORMERS = '{VerifiedTransformersVersion}'
+try:
+    import transformers as _tf
+    if _tf.__version__ != _VERIFIED_TRANSFORMERS:
+        print('[VERSION] transformers %s is not the verified version (verified: %s).'
+              % (_tf.__version__, _VERIFIED_TRANSFORMERS), flush=True)
+        print('[VERSION] Translation output may differ. '
+              'If results look wrong, try the verified version first.', flush=True)
+except Exception as _tf_e:
+    print('[VERSION] could not determine the transformers version:', _tf_e, flush=True)
+
 app = Flask(__name__)
 
 translator = None
@@ -894,6 +1022,7 @@ result = translator(prompt,
         private string GetModelInitCode(TranslationModelConfig config)
         {
             string type = string.IsNullOrWhiteSpace(config.Type) ? "standard" : config.Type;
+            string revision = RevisionArg(config.ModelName);
 
             if (type == "multilingual")
             {
@@ -902,7 +1031,7 @@ result = translator(prompt,
     'translation',
     model='" + config.ModelName + @"',
     src_lang='" + config.SrcLang + @"',
-    tgt_lang='" + config.TgtLang + @"'
+    tgt_lang='" + config.TgtLang + @"'" + revision + @"
 )";
             }
 
@@ -911,15 +1040,35 @@ result = translator(prompt,
                 return
 @"translator = pipeline(
     'text2text-generation',
-    model='" + config.ModelName + @"'
+    model='" + config.ModelName + @"'" + revision + @"
 )";
             }
 
             return
 @"translator = pipeline(
     'translation',
-    model='" + config.ModelName + @"'
+    model='" + config.ModelName + @"'" + revision + @"
 )";
+        }
+
+        /// <summary>
+        /// 検証済みリビジョンが分かっているモデルなら、pipeline() に渡す
+        /// revision 引数を組み立てて返します。分からないモデルでは空文字を返し、
+        /// 従来どおり main を引かせます。
+        /// </summary>
+        private static string RevisionArg(string modelName)
+        {
+            if (string.IsNullOrWhiteSpace(modelName))
+            {
+                return "";
+            }
+
+            if (!VerifiedRevisions.TryGetValue(modelName, out string? revision))
+            {
+                return "";
+            }
+
+            return ",\n    revision='" + revision + "'";
         }
 
         /// <summary>

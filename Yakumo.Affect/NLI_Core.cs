@@ -593,6 +593,54 @@ namespace Yakumo.Affect
         private Calibration.EmotionCalibrationStore _calibrationStore = null!;
 
         /// <summary>
+        /// 分析が1件完了するたびに発火します。
+        ///
+        /// 日本語入力の場合、<see cref="ClassificationResult.OriginalText"/> に原文が、
+        /// <see cref="ClassificationResult.Text"/> に翻訳後の英文が入っているため、
+        /// 「翻訳で感情が壊れた入力」を利用側で拾って辞書の候補にできます。
+        ///
+        /// ライブラリ側はファイルを書きません。記録するかどうか・どこに書くかは
+        /// 利用側が決めてください（入力文はユーザーの個人情報になりうるため）。
+        ///
+        /// <example>
+        /// <code>
+        /// core.Classified += result =&gt;
+        /// {
+        ///     // 英訳に日本語が残っている＝翻訳の失敗
+        ///     if (result.Language == "jp" &amp;&amp; ContainsJapanese(result.Text))
+        ///         AppendCandidateLog(result);
+        /// };
+        /// </code>
+        /// </example>
+        /// </summary>
+        /// <remarks>
+        /// ハンドラ内で例外が出ても分析は継続します（握り潰してデバッグログに出すだけ）。
+        /// 同期的に呼ばれるので、重い処理を書くと分析全体が遅くなります。
+        /// </remarks>
+        public event Action<ClassificationResult>? Classified;
+
+        /// <summary>
+        /// <see cref="Classified"/> を安全に発火します。
+        /// ハンドラが登録されていなければ何もしません。
+        /// </summary>
+        private void RaiseClassified(ClassificationResult result)
+        {
+            var handler = Classified;
+            if (handler is null)
+                return;
+
+            try
+            {
+                handler(result);
+            }
+            catch (Exception ex)
+            {
+                // 利用側の不具合で分析が止まらないようにする
+                DebugWriteLine($"[Classified][ERROR] ハンドラで例外: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// NLI_Coreの新しいインスタンスを作成します
         /// </summary>
         /// <param name="language">言語設定 ("jp" または "en")</param>

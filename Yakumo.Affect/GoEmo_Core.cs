@@ -47,6 +47,12 @@ namespace Yakumo.Affect
             ["fear"]         = new[] { "fear", "nervousness" },
             ["disgust"]      = new[] { "disgust" },
             ["surprise"]     = new[] { "surprise" },
+            // realization を neutral に置くのは v1→v2 の意図的な修正（巻き戻さないこと）。
+            // 「気づき」は日本語では単独で感情として評価するとオーバーリアクションになるため、
+            // neutral を sink として抑制する設計。旧 v1 (data/mapping/label_mapping.json、
+            // 2025-12 のゼロショットNLI時代の遺物・現在どのコードからも読まれていない) では
+            // surprise 側に入っていたが、GoEmotions 直接分類の導入時に現在の配置へ移された。
+            // surprise への寄与は下の SurprisePromo が composite 経由で行う（単独昇格はさせない）。
             ["neutral"]      = new[] { "neutral", "realization" },
             ["affection"]    = new[] { "love", "caring" },
             ["trust"]        = new[] { "approval", "pride", "gratitude", "admiration" },
@@ -207,6 +213,14 @@ namespace Yakumo.Affect
             {
                 text = await TranslationService.Instance.TranslateAsync(text, properNouns);
                 DebugWriteLine($"[TRANS] {original} -> {text}");
+
+                // 翻訳が失敗した場合、その出力を分類しても意味のある感情は出ない。
+                // 中立を返して打ち切る（詳細は IsTranslationFailure を参照）。
+                if (IsTranslationFailure(text))
+                {
+                    DebugWriteLine($"[TRANS][FAIL] 翻訳失敗と判定 -> 中立を返します: {original}");
+                    return BuildNeutralResult(original, text, role, threshold);
+                }
             }
 
             // ── トークン化（単一テキスト: <s> tokens </s>）──
@@ -333,6 +347,88 @@ namespace Yakumo.Affect
             };
         }
 
+        // ── 翻訳失敗の検出 ──────────────────────────────────────────────
+        //
+        // OPUS-MT は字幕コーパス（OpenSubtitles 等）で学習しているため、
+        // 訳しにくい入力に遭遇すると字幕の効果音表記だけを返すことがある。
+        // 実測（配信チャット 224件・2026-09-07）:
+        //
+        //   88時間プレイして40ちょいになりました    -> "(Laughter)"
+        //   〇〇さんの装備が今一番いいですよね    -> "(Laughter)"
+        //   一通り漂流はしたから…こたえられるで      -> "(Laughter)"
+        //
+        // 6件すべてが「喜び 0.78」と判定された。訳せなかったことが
+        // 高スコアの「喜び」として出力される、最も避けたい形の誤検出。
+        //
+        // 原文に共通する言い回しが無いので辞書では直せない（置換すべきキーが無い）。
+        // 翻訳結果の側で検出して、感情判定を放棄するのが正しい。
+        //
+        // !!! 保守的に判定すること。効果音表記を取り除いた結果が空になる場合のみ
+        //    失敗とみなす。"I laughed. (Laughter)" のように本文が残っていれば通常処理。
+
+        /// <summary>字幕由来の効果音表記。これだけが残ったら翻訳は失敗している。</summary>
+        private static readonly System.Text.RegularExpressions.Regex SubtitleArtifacts =
+            new(@"\(\s*(Laughter|Applause|Music|Cheering|Sighs?|Laughs?)\s*\)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// 翻訳が失敗しているかを判定します。
+        /// 効果音表記を除いて意味のある語が残らない場合のみ true。
+        /// </summary>
+        private static bool IsTranslationFailure(string translated)
+        {
+            if (string.IsNullOrWhiteSpace(translated))
+                return true;
+
+            string stripped = SubtitleArtifacts.Replace(translated, " ").Trim();
+
+            // 記号だけが残った場合も内容が無い
+            bool hasContent = false;
+            foreach (char c in stripped)
+            {
+                if (char.IsLetterOrDigit(c))
+                {
+                    hasContent = true;
+                    break;
+                }
+            }
+            return !hasContent;
+        }
+
+        /// <summary>
+        /// 翻訳失敗時に返す中立の結果を作ります。
+        /// スコアは 0 にして「判定できなかった」ことが分かるようにします。
+        /// </summary>
+        private ClassificationResult BuildNeutralResult(
+            string original, string translated, SpeakerRole role, double threshold)
+        {
+            string neutralLabel = IsGoEmoRaw28Mode()
+                ? "neutral"
+                : (_language == "en" ? "neutral" : "中立");
+
+            var scores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+            {
+                [neutralLabel] = 0.0
+            };
+
+            return new ClassificationResult
+            {
+                Text = translated,
+                OriginalText = original,
+                Scores = scores,
+                TopK = new List<KeyValuePair<string, double>>
+                {
+                    new(neutralLabel, 0.0)
+                },
+                SurpriseScore = 0.0,
+                IsSurprised = false,
+                Threshold = threshold,
+                Language = _language,
+                Role = role
+            };
+        }
+
         // ── 28 → 14 マッピング + Promo + ラベル重み・ロール重み・ローカライズ (yakumo14 モード) ──
         private Dictionary<string, double> PerformYakumo14Mapping(double[] probs28, SpeakerRole role)
         {
@@ -355,6 +451,15 @@ namespace Yakumo.Affect
                 Debug.WriteLine($"[GoEmo] top5(14): {string.Join(", ", sorted14.Select(x => $"{x.Key}={x.Value:F3}"))}");
             }
 
+            // ── Promo 共通の top1 スナップショット ──
+            // 各 Promo が個別に top1 を再評価すると、先に走った Promo の昇格結果が
+            // 後続 Promo のゲート条件を書き換えてしまう（例: DisgustPromo が disgust を
+            // neutral より上に押し上げると、SurprisePromo の "top1 == neutral" が
+            // 成立しなくなり surprise が永久に昇格できない）。
+            // Promo は「マッピング直後の素の top1」に対する独立した補正であるべきなので、
+            // 昇格前の top1 を1回だけ確定して全 Promo で共有する。
+            string promoBaseTop14 = scores14en.OrderByDescending(x => x.Value).First().Key;
+
             // ── disgust 昇格ロジック (annoyance + disapproval 集約) ──
             {
                 double disgust28     = probs28[GoEmoLabelIndex["disgust"]];
@@ -370,7 +475,7 @@ namespace Yakumo.Affect
                                          + annoyance28   * 0.40
                                          + disapproval28 * 0.35;
 
-                    string top14Label = scores14en.OrderByDescending(x => x.Value).First().Key;
+                    string top14Label = promoBaseTop14;
                     // sadness / fear も候補: 物理的嫌悪は GoEmotions が sadness/fear に流しやすい
                     bool topIsCandidate = top14Label is "anger" or "resentment" or "neutral"
                                                       or "sadness" or "fear";
@@ -402,7 +507,7 @@ namespace Yakumo.Affect
                                          + annoyance28    * 0.45
                                          + disapproval28  * 0.30;
 
-                    string top14Label = scores14en.OrderByDescending(x => x.Value).First().Key;
+                    string top14Label = promoBaseTop14;
                     bool topIsCandidate = top14Label is "resentment";
 
                     double promotionThreshold = Config.AffectConfigManager
@@ -431,7 +536,7 @@ namespace Yakumo.Affect
                 {
                     double compositScore = surprise28 + realization28 * 0.50;
 
-                    string top14Label = scores14en.OrderByDescending(x => x.Value).First().Key;
+                    string top14Label = promoBaseTop14;
                     bool topIsCandidate = top14Label is "neutral";
 
                     double promotionThreshold = Config.AffectConfigManager
